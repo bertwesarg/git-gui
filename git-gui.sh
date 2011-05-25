@@ -2918,7 +2918,7 @@ if {[is_enabled multicommit] || [is_enabled singlecommit]} {
 
 	.mbar.commit add command -label [mc Rescan] \
 		-command ui_do_rescan \
-		-accelerator F5
+		-accelerator $M1T-R
 	lappend disable_on_lock \
 		[list .mbar.commit entryconf [.mbar.commit index last] -state]
 
