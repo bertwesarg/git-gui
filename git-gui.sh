@@ -1181,7 +1181,8 @@ disable_option bare
 
 switch -- $subcommand {
 browser -
-blame {
+blame -
+grep {
 	enable_option bare
 
 	disable_option multicommit
@@ -2393,16 +2394,19 @@ proc do_quit {{rc {1}}} {
 proc do_rescan {} {
 	rescan ui_ready
 	$::browser_tab reload
+	$::grep_tab grep
 }
 
 proc ui_do_rescan {{W {}}} {
 	rescan {force_first_diff ui_ready}
 	$::browser_tab reload $W
+	$::grep_tab grep
 }
 
 proc do_commit {} {
 	commit_tree
 	$::browser_tab reload
+	$::grep_tab grep
 }
 
 proc next_diff {{after {}}} {
@@ -3467,6 +3471,11 @@ blame {
 	}
 	return
 }
+grep {
+	wm deiconify .
+	::grep::new {*}$argv
+	return
+}
 citool -
 gui {
 	if {[llength $argv] != 0} {
@@ -3475,7 +3484,7 @@ gui {
 	# fall through to setup UI for commits
 }
 default {
-	set err "[mc usage:] $argv0 \[{blame|browser|citool}\]"
+	set err "[mc usage:] $argv0 \[{blame|browser|citool|grep}\]"
 	if {[tk windowingsystem] eq "win32"} {
 		wm withdraw .
 		tk_messageBox -icon error -message $err \
@@ -4282,6 +4291,28 @@ bind_button3 $ui_diff [list popup_diff_menu $ctxm $ctxmmg $ctxmsm %x %y %X %Y]
 foreach i $ui_diff_columns {
 	bind $i <ButtonRelease-2>       {open_from_diff_view %x %y}
 	bind $i <Shift-ButtonRelease-2> {open_from_diff_view %x %y 1}
+}
+
+# -- Grep Tab
+#
+${NS}::frame .nb.grep
+set ::grep_tab [::grep::embed .nb.grep]
+$::grep_tab link_vpane .vpane
+$::grep_tab reorder_bindtags
+.nb add .nb.grep -text [mc "Grep"]
+$::grep_tab grep
+
+foreach i [list all $ui_diff] {
+	bind $i <$M1B-Key-h> {
+		.nb select .nb.grep
+		focus .nb.grep
+		$::grep_tab grep_from_selection
+	}
+	bind $i <$M1B-Key-H> {
+		.nb select .nb.grep
+		focus .nb.grep
+		$::grep_tab grep_from_selection
+	}
 }
 
 # -- Browser Tab
