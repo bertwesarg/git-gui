@@ -347,6 +347,10 @@ proc start_show_diff {cont_info {add_opts {}}} {
 	}
 
 	set ::current_diff_inheader 1
+	# detect pre-image lines of the diff3 conflict-style, they are just '++'
+	# lines which is not bijective, thus we need to maintain a state across
+	# lines
+	set ::conflict_in_pre_image 0
 	fconfigure $fd \
 		-blocking 0 \
 		-encoding [get_path_encoding $path] \
@@ -449,11 +453,22 @@ proc read_diff {fd conflict_size cont_info} {
 			{--} {set tags d_--}
 			{++} {
 				set regexp [string map [list %conflict_size $conflict_size]\
-								{^\+\+([<>=]){%conflict_size}(?: |$)}]
+								{^\+\+([<>=|]){%conflict_size}(?: |$)}]
 				if {[regexp $regexp $line _g op]} {
 					set is_conflict_diff 1
 					set line [string replace $line 0 1 {  }]
 					set tags d$op
+					# the ||| conflict-marker marks the start of the pre-image,
+					# all those lines are also prefixed with '++', thus we need
+					# to maintain this state
+					set ::conflict_in_pre_image [expr {$op eq {|}}]
+				} elseif {$::conflict_in_pre_image} {
+					# this is a pre-image line, it is the one which both sides
+					# are based on. As it has also the '++' line start, it is
+					# normally shown as 'added', invert this to '--' to make
+					# it a 'removed' line
+					set line [string replace $line 0 1 {--}]
+					set tags d_--
 				} else {
 					set tags d_++
 				}
