@@ -10,12 +10,11 @@ proc tools_list {} {
 	return [lsort $names]
 }
 
-proc tools_populate_all {} {
+proc tools_populate_all {tailcnt} {
 	global tools_menubar tools_menutbl
-	global tools_tailcnt
 
 	set mbar_end [$tools_menubar index end]
-	set mbar_base [expr {$mbar_end - $tools_tailcnt}]
+	set mbar_base [expr {$mbar_end - $tailcnt}]
 	if {$mbar_base >= 0} {
 		$tools_menubar delete 0 $mbar_base
 	}
@@ -23,21 +22,20 @@ proc tools_populate_all {} {
 	array unset tools_menutbl
 
 	foreach fullname [tools_list] {
-		tools_populate_one $fullname
+		tools_populate_one $tailcnt $fullname
 	}
 }
 
-proc tools_create_item {parent args} {
-	global tools_menubar tools_tailcnt
-	if {$parent eq $tools_menubar} {
-		set pos [expr {[$parent index end]-$tools_tailcnt+1}]
+proc tools_create_item {menu tailcnt parent args} {
+	if {$parent eq $menu} {
+		set pos [expr {[$parent index end]-$tailcnt+1}]
 		eval [list $parent insert $pos] $args
 	} else {
 		eval [list $parent add] $args
 	}
 }
 
-proc tools_populate_one {fullname} {
+proc tools_populate_one {tailcnt fullname} {
 	global tools_menubar tools_menutbl tools_id
 
 	if {![info exists tools_id]} {
@@ -52,8 +50,10 @@ proc tools_populate_one {fullname} {
 			set parent $tools_menutbl($subname)
 		} else {
 			set subid $parent.t$tools_id
-			tools_create_item $parent cascade \
-					-label [lindex $names $i] -menu $subid
+			tools_create_item $tools_menubar $tailcnt \
+				$parent cascade \
+					-label [lindex $names $i] \
+					-menu $subid
 			menu $subid
 			set tools_menutbl($subname) $subid
 			set parent $subid
@@ -61,18 +61,75 @@ proc tools_populate_one {fullname} {
 		}
 	}
 
-	tools_create_item $parent command \
-		-label [lindex $names end] \
-		-command [list tools_exec $fullname]
+	tools_create_item $tools_menubar $tailcnt \
+		$parent command \
+			-label [lindex $names end] \
+			-command [list tools_exec $fullname]
 }
 
-proc tools_exec {fullname} {
+proc files_tools_populate_all {tailcnt {path_var {}}} {
+	global files_ctxm files_ctxmtbl
+
+	set ctxm_end [$files_ctxm index end]
+	set ctxm_base [expr {$ctxm_end - $tailcnt}]
+	if {$ctxm_base >= 0} {
+		$files_ctxm delete 0 $ctxm_base
+	}
+
+	array unset files_ctxmtbl
+
+	foreach fullname [tools_list] {
+		if {[is_config_true "guitool.$fullname.needsfile"]} {
+			files_tools_populate_one $tailcnt $fullname $path_var
+		}
+	}
+}
+
+proc files_tools_populate_one {tailcnt fullname {path_var {}}} {
+	global files_ctxm files_ctxmtbl files_tools_id
+
+	if {![info exists files_tools_id]} {
+		set files_tools_id 0
+	}
+
+	set names [split $fullname '/']
+	set parent $files_ctxm
+	for {set i 0} {$i < [llength $names]-1} {incr i} {
+		set subname [join [lrange $names 0 $i] '/']
+		if {[info exists files_ctxmtbl($subname)]} {
+			set parent $files_ctxmtbl($subname)
+		} else {
+			set subid $parent.t$files_tools_id
+			tools_create_item $files_ctxm $tailcnt \
+				$parent cascade \
+					-label [lindex $names $i] \
+					-menu $subid
+			menu $subid -tearoff 0
+			set files_ctxmtbl($subname) $subid
+			set parent $subid
+			incr files_tools_id
+		}
+	}
+
+	tools_create_item $files_ctxm $tailcnt \
+		$parent command \
+			-label [lindex $names end] \
+			-command [list tools_exec $fullname $path_var]
+}
+
+proc tools_exec {fullname {path_var {}}} {
 	global repo_config env current_diff_path
 	global current_branch is_detached
 	global selected_paths
 
+	if {$path_var ne {}} {
+		upvar #0 $path_var path
+	} else {
+		set path $current_diff_path
+	}
+
 	if {[is_config_true "guitool.$fullname.needsfile"]} {
-		if {$current_diff_path eq {}} {
+		if {$path eq {}} {
 			error_popup [mc "Running %s requires a selected file." $fullname]
 			return
 		}
@@ -89,7 +146,7 @@ proc tools_exec {fullname} {
 		}
 	} elseif {[is_config_true "guitool.$fullname.confirm"]} {
 		if {[is_config_true "guitool.$fullname.needsfile"]} {
-			if {[ask_popup [mc "Are you sure you want to run %1\$s on file \"%2\$s\"?" $fullname $current_diff_path]] ne {yes}} {
+			if {[ask_popup [mc "Are you sure you want to run %1\$s on file \"%2\$s\"?" $fullname $path]] ne {yes}} {
 				return
 			}
 		} else {
@@ -100,7 +157,7 @@ proc tools_exec {fullname} {
 	}
 
 	set env(GIT_GUITOOL) $fullname
-	set env(FILENAME) $current_diff_path
+	set env(FILENAME) $path
 	set env(FILENAMES) [join [array names selected_paths] \n]
 	if {$is_detached} {
 		set env(CUR_BRANCH) ""

@@ -2518,6 +2518,22 @@ proc force_first_diff {after} {
 	}
 }
 
+proc popup_files_ctxm {m w x y X Y} {
+	global file_lists popup_path
+
+	set ::cursorX $x
+	set ::cursorY $y
+
+	set pos [split [$w index @$x,$y] .]
+	set lno [lindex $pos 0]
+	set col [lindex $pos 1]
+	set popup_path [lindex $file_lists($w) [expr {$lno - 1}]]
+	if {$popup_path eq {}} {
+		return
+	}
+	tk_popup $m $X $Y
+}
+
 proc toggle_or_diff {mode w args} {
 	global file_states file_lists current_diff_path ui_index ui_workdir
 	global last_clicked selected_paths file_lists_last_clicked
@@ -3022,9 +3038,8 @@ if {[is_enabled multicommit] || [is_enabled singlecommit]} {
 	$tools_menubar add separator
 	$tools_menubar add command -label [mc "Add..."] -command tools_add::dialog
 	$tools_menubar add command -label [mc "Remove..."] -command tools_remove::dialog
-	set tools_tailcnt 3
 	if {[array names repo_config guitool.*.cmd] ne {}} {
-		tools_populate_all
+		tools_populate_all 3
 	}
 }
 
@@ -3327,6 +3342,16 @@ foreach i [list $ui_index $ui_workdir] {
 	$i tag conf in_sel -background  [$i cget -background] -underline 1
 }
 unset i
+
+set files_ctxm .vpane.files.ctxm
+menu $files_ctxm -tearoff 0
+$files_ctxm add separator
+$files_ctxm add command -label [mc "Stage All Changed"] -command do_add_all
+$files_ctxm add command -label [mc "Stage Selected"] -command do_add_selection
+if {[array names repo_config guitool.*.cmd] ne {}} {
+	files_tools_populate_all 3 popup_path
+}
+
 
 # -- Diff and Commit Area
 #
@@ -3989,6 +4014,13 @@ foreach i [list $ui_index $ui_workdir] {
 	bind $i <Key-Up>         { toggle_or_diff up %W; break }
 	bind $i <Key-Down>       { toggle_or_diff down %W; break }
 }
+if {[$files_ctxm index end] == 1} {
+	# remove the separator, when we don't have user specified file tools
+	$files_ctxm delete 0
+}
+bind_button3 $ui_index   "popup_files_ctxm $files_ctxm $ui_index %x %y %X %Y; break"
+bind_button3 $ui_workdir "popup_files_ctxm $files_ctxm $ui_workdir %x %y %X %Y; break"
+
 unset i
 
 bind .   <Alt-Key-1> {focus_widget $::ui_workdir}
