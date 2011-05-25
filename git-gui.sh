@@ -3598,7 +3598,8 @@ pack $ui_diff -side left -fill both -expand 1
 pack .vpane.lower.diff.header -side top -fill x
 pack .vpane.lower.diff.body -side bottom -fill both -expand 1
 
-foreach {n c} {0 black 1 red4 2 green4 3 yellow4 4 blue4 5 magenta4 6 cyan4 7 grey60} {
+
+foreach {n c} {0 black 1 red 2 green4 3 yellow4 4 blue4 5 magenta4 6 cyan4 7 grey60} {
 	$ui_diff tag configure clr4$n -background $c
 	$ui_diff tag configure clri4$n -foreground $c
 	$ui_diff tag configure clr3$n -foreground $c
@@ -3611,19 +3612,19 @@ $ui_diff tag conf d_info -foreground blue -font font_diffbold
 
 $ui_diff tag conf d_cr -elide true
 $ui_diff tag conf d_@ -font font_diffbold
-$ui_diff tag conf d_+ -foreground {#00a000}
+$ui_diff tag conf d_+ -foreground green4
 $ui_diff tag conf d_- -foreground red
 
-$ui_diff tag conf d_++ -foreground {#00a000}
+$ui_diff tag conf d_++ -foreground green4
 $ui_diff tag conf d_-- -foreground red
 $ui_diff tag conf d_+s \
-	-foreground {#00a000} \
+	-foreground green4 \
 	-background {#e2effa}
 $ui_diff tag conf d_-s \
 	-foreground red \
 	-background {#e2effa}
 $ui_diff tag conf d_s+ \
-	-foreground {#00a000} \
+	-foreground green4 \
 	-background ivory1
 $ui_diff tag conf d_s- \
 	-foreground red \
