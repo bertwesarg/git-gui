@@ -3260,7 +3260,7 @@ pack .branch -side top -fill x
 ${NS}::panedwindow .vpane -orient horizontal
 ${NS}::panedwindow .vpane.files -orient vertical
 if {$use_ttk} {
-	.vpane add .vpane.files
+	.vpane add .vpane.files -weight 0
 } else {
 	.vpane add .vpane.files -sticky nsew -height 100 -width 200
 }
@@ -3311,11 +3311,12 @@ pack $ui_index -side left -fill both -expand 1
 
 # -- Insert the workdir and index into the panes
 #
-.vpane.files add .vpane.files.workdir
-.vpane.files add .vpane.files.index
-if {!$use_ttk} {
-	.vpane.files paneconfigure .vpane.files.workdir -sticky news
-	.vpane.files paneconfigure .vpane.files.index -sticky news
+if {$use_ttk} {
+	.vpane.files add .vpane.files.workdir -weight 1
+	.vpane.files add .vpane.files.index -weight 1
+} else {
+	.vpane.files add .vpane.files.workdir -sticky news
+	.vpane.files add .vpane.files.index -sticky news
 }
 
 foreach i [list $ui_index $ui_workdir] {

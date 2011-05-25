@@ -119,19 +119,27 @@ constructor new {i_commit i_path i_jump} {
 	pack $w_path -fill x -side right
 	pack $w.header.path_l -side right
 
-	panedwindow $w.file_pane -orient vertical -borderwidth 0 -sashwidth 3
+	${NS}::panedwindow $w.file_pane -orient vertical
 	frame $w.file_pane.out -relief flat -borderwidth 1
 	frame $w.file_pane.cm -relief sunken -borderwidth 1
-	$w.file_pane add $w.file_pane.out \
-		-sticky nsew \
-		-minsize 100 \
-		-height 100 \
-		-width 100
-	$w.file_pane add $w.file_pane.cm \
-		-sticky nsew \
-		-minsize 25 \
-		-height 25 \
-		-width 100
+	if {$use_ttk} {
+		$w.file_pane add $w.file_pane.out \
+			-weight 3
+		$w.file_pane add $w.file_pane.cm \
+			-weight 1
+	} else {
+		$w.file_pane configure -borderwidth 0 -sashwidth 3
+		$w.file_pane add $w.file_pane.out \
+			-sticky nsew \
+			-minsize 100 \
+			-height 400 \
+			-width 100
+		$w.file_pane add $w.file_pane.cm \
+			-sticky nsew \
+			-minsize 25 \
+			-height 25 \
+			-width 100
+	}
 
 	set w_line $w.file_pane.out.linenumber_t
 	text $w_line \
@@ -393,12 +401,14 @@ constructor new {i_commit i_path i_jump} {
 	wm geometry $top $g
 	update
 
-	set old_height [winfo height $w.file_pane]
-	$w.file_pane sash place 0 \
-		[lindex [$w.file_pane sash coord 0] 0] \
-		[expr {int($old_height * 0.80)}]
-	bind $w.file_pane <Configure> \
-	"if {{$w.file_pane} eq {%W}} {[cb _resize %h]}"
+	if {!$use_ttk} {
+		set old_height [winfo height $w.file_pane]
+		$w.file_pane sash place 0 \
+		       [lindex [$w.file_pane sash coord 0] 0] \
+		       [expr {int($old_height * 0.80)}]
+		bind $w.file_pane <Configure> \
+			"if {{$w.file_pane} eq {%W}} {[cb _resize %h]}"
+	}
 
 	wm protocol $top WM_DELETE_WINDOW "destroy $top"
 	bind $top <Destroy> [cb _handle_destroy %W]
