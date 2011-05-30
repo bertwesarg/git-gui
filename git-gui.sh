@@ -198,11 +198,10 @@ proc appname {} {
 }
 
 proc gitdir {args} {
-	global _gitdir
 	if {$args eq {}} {
-		return $_gitdir
+		return $::GIT_DIR
 	}
-	return [eval [list file join $_gitdir] $args]
+	return [eval [list file join $::GIT_DIR] $args]
 }
 
 proc gitexec {args} {
@@ -1267,6 +1266,7 @@ if {![file isdirectory $_gitdir]} {
 	error_popup [strcat [mc "Git directory not found:"] "\n\n$_gitdir"]
 	exit 1
 }
+
 # _gitdir exists, so try loading the config
 load_config 0
 apply_config
@@ -1326,8 +1326,46 @@ if {[lindex $_reponame end] eq {.git}} {
 	set _reponame [lindex $_reponame end]
 }
 
-set env(GIT_DIR) $_gitdir
-set env(GIT_WORK_TREE) $_gitworktree
+proc git_env_proxy {var_name index_name op} {
+	upvar $var_name var
+	# strip leading ::
+	set var_name [string range $var_name 2 end]
+	if {$op eq "write"} {
+		set ::env($var_name) $var
+	} elseif {$op eq "unset"} {
+		unset ::env($var_name)
+	}
+}
+
+proc git_reset_env {} {
+	set ::GIT_DIR $::_gitdir
+	set ::GIT_WORK_TREE $::_gitworktree
+	set ::GIT_INDEX_FILE $::_gitindex
+}
+
+proc git_clear_env {} {
+	unset ::GIT_DIR
+	unset ::GIT_WORK_TREE
+	unset ::GIT_INDEX_FILE
+}
+
+set _gitdir [file normalize $_gitdir]
+set GIT_DIR $_gitdir
+trace add variable GIT_DIR [list write unset] git_env_proxy
+
+set _gitworktree [file normalize $_gitworktree]
+set GIT_WORK_TREE $_gitworktree
+trace add variable GIT_WORK_TREE [list write unset] git_env_proxy
+
+if {[info exists env(GIT_INDEX_FILE)]} {
+	set _gitindex $env(GIT_INDEX_FILE)
+} else {
+	set _gitindex [gitdir index]
+}
+set GIT_INDEX_FILE $_gitindex
+trace add variable GIT_INDEX_FILE [list write unset] git_env_proxy
+
+git_reset_env
 
 catch { unset env(GIT_EDITOR_F_NBLOCK) }
 catch { unset env(GIT_EDITOR_F_POSITION) }
@@ -2188,7 +2226,6 @@ set starting_gitk_msg [mc "Starting gitk... please wait..."]
 
 proc do_gitk {revs {is_submodule false}} {
 	global current_diff_path file_states current_diff_side ui_index
-	global _gitdir _gitworktree
 
 	# -- Always start gitk through whatever we were loaded with.  This
 	#    lets us bypass using shell process on Windows systems.
@@ -2204,7 +2241,7 @@ proc do_gitk {revs {is_submodule false}} {
 
 		if {!$is_submodule} {
 			if {![is_bare]} {
-				cd $_gitworktree
+				cd $::GIT_WORK_TREE
 			}
 		} else {
 			cd $current_diff_path
@@ -2231,13 +2268,11 @@ proc do_gitk {revs {is_submodule false}} {
 			# TODO we could make life easier (start up faster?) for gitk
 			# by setting these to the appropriate values to allow gitk
 			# to skip the heuristics to find their proper value
-			unset env(GIT_DIR)
-			unset env(GIT_WORK_TREE)
+			git_clear_env
 		}
 		eval exec $cmd $revs "--" "--" &
 
-		set env(GIT_DIR) $_gitdir
-		set env(GIT_WORK_TREE) $_gitworktree
+		git_reset_env
 		cd $pwd
 
 		ui_status $::starting_gitk_msg
@@ -2257,22 +2292,17 @@ proc do_git_gui {} {
 	if {$exe eq {}} {
 		error_popup [mc "Couldn't find git gui in PATH"]
 	} else {
-		global env
-		global _gitdir _gitworktree
-
 		# see note in do_gitk about unsetting these vars when
 		# running tools in a submodule
-		unset env(GIT_DIR)
-		unset env(GIT_WORK_TREE)
+		git_clear_env
 
 		set pwd [pwd]
 		cd $current_diff_path
 
 		eval exec $exe gui &
 
-		set env(GIT_DIR) $_gitdir
-		set env(GIT_WORK_TREE) $_gitworktree
 		cd $pwd
+		git_reset_env
 
 		ui_status $::starting_gitk_msg
 		after 10000 {

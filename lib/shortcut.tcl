@@ -2,7 +2,6 @@
 # Copyright (C) 2006, 2007 Shawn Pearce
 
 proc do_windows_shortcut {} {
-	global _gitworktree
 	set fn [tk_getSaveFile \
 		-parent . \
 		-title [mc "%s (%s): Create Desktop Icon" [appname] [reponame]] \
@@ -19,7 +18,7 @@ proc do_windows_shortcut {} {
 		}
 		if {[catch {
 				win32_create_lnk $fn $cmdLine \
-					[file normalize $_gitworktree]
+					$::GIT_WORK_TREE
 			} err]} {
 			error_popup [strcat [mc "Cannot write shortcut:"] "\n\n$err"]
 		}
@@ -27,7 +26,7 @@ proc do_windows_shortcut {} {
 }
 
 proc do_cygwin_shortcut {} {
-	global argv0 _gitworktree
+	global argv0
 
 	if {[catch {
 		set desktop [exec cygpath \
@@ -60,7 +59,7 @@ proc do_cygwin_shortcut {} {
 					$sh -c \
 					"CHERE_INVOKING=1 source /etc/profile;[sq $me] &" \
 					] \
-					[file normalize $_gitworktree]
+					$::GIT_WORK_TREE
 			} err]} {
 			error_popup [strcat [mc "Cannot write shortcut:"] "\n\n$err"]
 		}
