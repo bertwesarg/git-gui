@@ -210,6 +210,8 @@ constructor new {i_commit i_path i_jump} {
 
 	set w_columns [list $w_amov $w_asim $w_line $w_file]
 
+	delegate_sel_to $w_file [list $w_amov $w_asim $w_line]
+
 	${NS}::scrollbar $w.file_pane.out.sbx \
 		-orient h \
 		-command [list $w_file xview]
@@ -318,11 +320,17 @@ constructor new {i_commit i_path i_jump} {
 		$i conf -yscrollcommand \
 			"[list ::searchbar::scrolled $finder]
 			 [list many2scrollbar $w_columns yview $w.file_pane.out.sby]"
-		bind $i <Button-1> "
+
+		set bind_cmd bind
+		if {$i ne $w_file} {
+			set bind_cmd delegator_bind
+		}
+		$bind_cmd $i <Button-1> "
 			[cb _hide_tooltip]
 			[cb _click $i @%x,%y]
 			focus $i
 		"
+
 		bind $i <Any-Motion>  [cb _show_tooltip $i @%x,%y]
 		bind $i <Any-Enter>   [cb _hide_tooltip]
 		bind $i <Any-Leave>   [cb _hide_tooltip]

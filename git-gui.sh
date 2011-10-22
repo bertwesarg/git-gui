@@ -2138,6 +2138,35 @@ proc many2scrollbar {list mode sb top bottom} {
 	foreach w $list {$w $mode moveto $top}
 }
 
+# delegates mouse selection actions from gutter columns to the main text
+# widget
+# use delegator_bind, if you need to bind more actions
+proc delegate_sel_to {w from} {
+	set bind_list [list \
+		<Button-1> \
+		<B1-Motion> \
+		<Double-Button-1> \
+		<Triple-Button-1> \
+		<Shift-Button-1> \
+		<Double-Shift-Button-1> \
+		<Triple-Shift-Button-1> \
+	]
+
+	foreach seq $bind_list {
+		set script [bind Text $seq]
+		set new_script [string map [list %W $w %x 0 word line] $script]
+		foreach f $from {
+			bind $f $seq "$new_script; focus $w; break"
+		}
+	}
+}
+
+# use this for binding any of the mouse actions from a delegator
+# see bind_list in delegate_sel_to
+proc delegator_bind {tag seq script} {
+	bind $tag $seq "$script; [bind $tag $seq]"
+}
+
 proc incr_font_size {font {amt 1}} {
 	set sz [font configure $font -size]
 	incr sz $amt
