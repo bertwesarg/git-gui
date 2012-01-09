@@ -2592,7 +2592,6 @@ proc toggle_or_diff {mode w args} {
 				[concat $after [list ui_ready]]
 		}
 	} else {
-		set selected_paths($path) 1
 		show_diff $path $w $lno
 	}
 }
@@ -3298,6 +3297,9 @@ if {!$use_ttk} {
 foreach i [list $ui_index $ui_workdir] {
 	rmsel_tag $i
 	$i tag conf in_diff -background [$i tag cget in_sel -background]
+	#$i tag conf in_diff -underline 1
+	#$i tag conf in_sel -background {#c6e2ff} -font font_diffitalic
+	$i tag conf in_sel -background  [$i cget -background] -underline 1
 }
 unset i
 
