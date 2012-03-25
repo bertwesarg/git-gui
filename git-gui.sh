@@ -1328,6 +1328,9 @@ if {[lindex $_reponame end] eq {.git}} {
 set env(GIT_DIR) $_gitdir
 set env(GIT_WORK_TREE) $_gitworktree
 
+catch { unset env(GIT_EDITOR_F_NBLOCK) }
+catch { unset env(GIT_EDITOR_F_POSITION) }
+
 ######################################################################
 ##
 ## global init
@@ -2522,6 +2525,100 @@ proc force_first_diff {after} {
 	}
 }
 
+# opens file in editor
+proc open_in_git_editor {path {lno 0}} {
+	global env
+
+
+	catch { unset env(ARGS) }
+	catch { unset env(REVISION) }
+
+	set env(GIT_EDITOR_F_NBLOCK) 1
+	if {$lno != 0} {
+		set env(GIT_EDITOR_F_POSITION) $lno
+	}
+
+	if {[catch {exec [shellpath] -c "[git var GIT_EDITOR] [sq $path]"} err]} {
+		tk_messageBox \
+			-icon error \
+			-type ok \
+			-title {git-gui: Can't start GIT_EDITOR} \
+			-message $err
+	}
+
+	catch { unset env(GIT_EDITOR_F_NBLOCK) }
+	catch { unset env(GIT_EDITOR_F_POSITION) }
+}
+
+proc get_best_diff_lno {w lno} {
+	set fwi [$w search -elide -regexp {^\d+$} $lno.0 end]
+	if {$fwi eq {}} {
+		set fwi end
+	}
+	set bwi [$w search -elide -backwards -regexp {^\d+$} $lno.0 1.0]
+	if {$bwi eq {}} {
+		set bwi 1.0
+	}
+	set fwl [$w count -lines $lno.0 $fwi]
+	set bwl [$w count -lines $bwi $lno.0]
+	if {$fwl <= $bwl} {
+		set lno [$w get "$fwi linestart" "$fwi lineend"]
+	} else {
+		set lno [$w get "$bwi linestart" "$bwi lineend"]
+	}
+
+	if {$lno eq {}} {
+		set lno 0
+	}
+
+	return $lno
+}
+
+proc open_from_file_list {w x y} {
+	global ui_diff ui_diff_blnos
+	global file_lists current_diff_path
+
+	set pos [split [$w index @$x,$y] .]
+	set lno [lindex $pos 0]
+	set col [lindex $pos 1]
+	set path [lindex $file_lists($w) [expr {$lno - 1}]]
+	if {$path eq {}} {
+		return
+	}
+
+	set lno 0
+	if {$path eq $current_diff_path} {
+		# calculate the line number which is visible in the middle
+		set height [$ui_diff count -ypixels 1.0 end]
+		set ypos [$ui_diff yview]
+		set yposm [expr {([lindex $ypos 1] + [lindex $ypos 0]) / 2}]
+		set mpixel [expr {$height * $yposm}]
+		set ytop [expr {[lindex $ypos 0] * $height}]
+		set rmpixel [expr {round($mpixel - $ytop)}]
+		set lno [$ui_diff index "@0,$rmpixel linestart"]
+		set lno [lindex [split $lno .] 0]
+
+		set lno [get_best_diff_lno $ui_diff_blnos $lno]
+	}
+
+	open_in_git_editor $path $lno
+}
+
+proc open_from_diff_view {x y} {
+	global ui_diff ui_diff_blnos
+	global file_lists current_diff_path
+
+	if {$current_diff_path eq {}} {
+		return
+	}
+
+	set lno [$ui_diff index "@0,$y linestart"]
+	set lno [lindex [split $lno .] 0]
+	set lno [get_best_diff_lno $ui_diff_blnos $lno]
+
+	open_in_git_editor $current_diff_path $lno
+}
+
 proc popup_files_ctxm {m w x y X Y} {
 	global file_lists popup_path
 
@@ -3354,10 +3451,11 @@ unset i
 set files_ctxm .vpane.files.ctxm
 menu $files_ctxm -tearoff 0
 $files_ctxm add separator
+$files_ctxm add command -label [mc "Open in Editor"] -command {open_from_file_list $current_diff_side $cursorX $cursorY}
 $files_ctxm add command -label [mc "Stage All Changed"] -command do_add_all
 $files_ctxm add command -label [mc "Stage Selected"] -command do_add_selection
 if {[array names repo_config guitool.*.cmd] ne {}} {
-	files_tools_populate_all 3 popup_path
+	files_tools_populate_all 4 popup_path
 }
 
 
@@ -3834,6 +3932,10 @@ set ui_diff_undorevert [$ctxm index last]
 lappend diff_actions [list $ctxm entryconf $ui_diff_undorevert -state]
 $ctxm add separator
 $ctxm add command \
+	-label [mc "Open in Editor"] \
+	-command {open_from_diff_view $cursorX $cursorY}
+lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
+$ctxm add command \
 	-label [mc "Show Less Context"] \
 	-command show_less_context
 lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
@@ -3868,6 +3970,10 @@ $ctxmmg add command \
 	-command {merge_resolve_one 1}
 lappend diff_actions [list $ctxmmg entryconf [$ctxmmg index last] -state]
 $ctxmmg add separator
+$ctxmmg add command \
+	-label [mc "Open in Editor"] \
+	-command {open_from_diff_view $cursorX $cursorY}
+lappend diff_actions [list $ctxmmg entryconf [$ctxmmg index last] -state]
 $ctxmmg add command \
 	-label [mc "Show Less Context"] \
 	-command show_less_context
@@ -3998,6 +4104,10 @@ proc popup_diff_menu {ctxm ctxmmg ctxmsm x y X Y} {
 	}
 }
 bind_button3 $ui_diff [list popup_diff_menu $ctxm $ctxmmg $ctxmsm %x %y %X %Y]
+
+foreach i $ui_diff_columns {
+	bind $i <ButtonRelease-2> {open_from_diff_view %x %y}
+}
 
 # -- Status Bar
 #
@@ -4130,12 +4240,14 @@ bind .   <$M1B-Key-KP_Add> {show_more_context;break}
 bind .   <$M1B-Key-Return> do_commit
 bind .   <$M1B-Key-KP_Enter> do_commit
 foreach i [list $ui_index $ui_workdir] {
-	bind $i <Button-1>       { toggle_or_diff click %W %x %y; break }
-	bind $i <$M1B-Button-1>  { add_one_to_selection %W %x %y; break }
-	bind $i <Shift-Button-1> { add_range_to_selection %W %x %y; break }
-	bind $i <Key-Up>         { toggle_or_diff up %W; break }
-	bind $i <Key-Down>       { toggle_or_diff down %W; break }
+	bind $i <Button-1>        { toggle_or_diff click %W %x %y; break }
+	bind $i <$M1B-Button-1>   { add_one_to_selection %W %x %y; break }
+	bind $i <Shift-Button-1>  { add_range_to_selection %W %x %y; break }
+	bind $i <Key-Up>          { toggle_or_diff up %W; break }
+	bind $i <Key-Down>        { toggle_or_diff down %W; break }
+	bind $i <ButtonRelease-2> { open_from_file_list %W %x %y; break }
 }
+
 if {[$files_ctxm index end] == 1} {
 	# remove the separator, when we don't have user specified file tools
 	$files_ctxm delete 0
