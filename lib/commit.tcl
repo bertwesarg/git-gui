@@ -522,6 +522,8 @@ proc commit_postcommit_wait {fd_ph cmt_id} {
 	if {[eof $fd_ph]} {
 		if {[catch {close $fd_ph}]} {
 			hook_failed_popup post-commit $pch_error 0
+		} else {
+			ui_status [mc "post-commit hook successfully finished."]
 		}
 		unset pch_error
 		return
