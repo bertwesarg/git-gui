@@ -2392,14 +2392,17 @@ proc do_quit {{rc {1}}} {
 
 proc do_rescan {} {
 	rescan ui_ready
+	$::browser_tab reload
 }
 
-proc ui_do_rescan {} {
+proc ui_do_rescan {{W {}}} {
 	rescan {force_first_diff ui_ready}
+	$::browser_tab reload $W
 }
 
 proc do_commit {} {
 	commit_tree
+	$::browser_tab reload
 }
 
 proc next_diff {{after {}}} {
@@ -4281,6 +4284,13 @@ foreach i $ui_diff_columns {
 	bind $i <Shift-ButtonRelease-2> {open_from_diff_view %x %y 1}
 }
 
+# -- Browser Tab
+#
+${NS}::frame .nb.browser
+set ::browser_tab [::full_browser::embed .nb.browser]
+$::browser_tab reorder_bindtags
+.nb add .nb.browser -text [mc "Browse"]
+
 # -- Status Bar
 #
 set main_status [::status_bar::new .status]
@@ -4389,9 +4399,9 @@ if {[is_enabled transport]} {
 	bind . <$M1B-Key-P> do_push_anywhere
 }
 
-bind .   <Key-F5>     ui_do_rescan
-bind .   <$M1B-Key-r> ui_do_rescan
-bind .   <$M1B-Key-R> ui_do_rescan
+bind .   <Key-F5>     { ui_do_rescan %W }
+bind .   <$M1B-Key-r> { ui_do_rescan %W }
+bind .   <$M1B-Key-R> { ui_do_rescan %W }
 bind .   <$M1B-Key-s> do_signoff
 bind .   <$M1B-Key-S> do_signoff
 bind .   <$M1B-Key-t> { toggle_or_diff toggle %W }
