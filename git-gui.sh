@@ -30,8 +30,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.}]
 ##
 ## Tcl/Tk sanity check
 
-if {[catch {package require Tcl 8.4} err]
- || [catch {package require Tk  8.4} err]
+if {[catch {package require Tcl 8.5} err]
+ || [catch {package require Tk  8.5} err]
 } {
 	catch {wm withdraw .}
 	tk_messageBox \
@@ -2075,6 +2075,8 @@ static unsigned char file_statechange_bits[] = {
    0x02, 0x10, 0x02, 0x10, 0xfe, 0x1f};
 } -maskdata $filemask
 
+image create photo tab_close -data {R0lGODlhDgAOAMZaAFJSUlNTUlNTU1RUVFVVVVVWVVZWVllZWVpaWVpaWlpbWltbWltbW1xcW1xcXFxdXF1dXF1dXV1eXV5eXV5eXl9fXV9fXl9fX19gXmBgYGBhX2NjY2RlY2VlZWVmZGZmZmZnZWZoZWhpZ2hqaGtramttamxtbG1ubG5vbW9wbnBxb3FycHJzcXJzcnN1cnR1c3V1dHV2dHZ4dXd5dnt8enx+e4GCgIGDgYeIhoeJh4mKiIuLi42NjY+PjZCQkJGRkZKSkpSUlJWVlZeXl5mZmZubm5ycnJ2dnZ6enqCgoKKioqioqLOzs8XFxcbGxsfHx8vLy83NzdDQ0NHR0dLS0tbW1tnZ2d3d3d7e3t/f3////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////yH5BAEKAH8ALAAAAAAOAA4AAAeZgH+CWYKFf1eGf1QdQoY/H1WFURIrEUGCQBUtFFJ/VgkpOjkRP0ENODokG1h/SQclMjcPBzYzIwRMhUcGISw1NC4hA0uJRAQgKCogA0aJfzwMMR4eMQ47iT4HLyIYEyIwCD2FQQcmHBABAg8cJweNUxQKGgsCSEoA8ggUU39PGQUEhggqMsCAhSeFnFzwYSgIhSaJoDiTKCgQADs=}
+
 set ui_index .vpane.files.index.list
 set ui_workdir .vpane.files.workdir.list
 
@@ -2704,6 +2706,48 @@ proc open_from_diff_view {x y {edit_index 0}} {
 	open_in_git_editor $current_diff_path $lno $edit_index
 }
 
+proc blame_from_file_list {w x y} {
+	global ui_diff ui_diff_blnos
+	global file_lists current_diff_path
+
+	set pos [split [$w index @$x,$y] .]
+	set lno [lindex $pos 0]
+	set col [lindex $pos 1]
+	set path [lindex $file_lists($w) [expr {$lno - 1}]]
+	if {$path eq {}} {
+		return
+	}
+
+	set lno 0
+	if {$path eq $current_diff_path} {
+		# calculate the line number which is visible in the middle
+		set height [$ui_diff count -ypixels 1.0 end]
+		set ypos [$ui_diff yview]
+		set yposm [expr {([lindex $ypos 1] + [lindex $ypos 0]) / 2}]
+		set mpixel [expr {$height * $yposm}]
+		set ytop [expr {[lindex $ypos 0] * $height}]
+		set rmpixel [expr {round($mpixel - $ytop)}]
+		set lno [$ui_diff index "@0,$rmpixel linestart"]
+		set lno [lindex [split $lno .] 0]
+
+		set lno [get_best_diff_lno $ui_diff_blnos $lno]
+	}
+
+	blame_path_in_tab $path $lno
+}
+
+set ::blame_seq 0
+proc blame_path_in_tab {path {lno {}}} {
+	global NS main_status
+
+	set new_blame_tab .nb.blame[incr ::blame_seq]
+	${NS}::frame $new_blame_tab
+	set blame_tab [::blame::embed $new_blame_tab $main_status "" $path $lno]
+	.nb add $new_blame_tab -text "[lindex [file split $path] end]" -image tab_close -compound right
+	.nb select $new_blame_tab
+	focus $new_blame_tab
+}
+
 proc popup_files_ctxm {m w x y X Y} {
 	global file_lists popup_path
 
@@ -3281,7 +3325,7 @@ wm protocol . WM_DELETE_WINDOW do_quit
 bind all <$M1B-Key-q> do_quit
 bind all <$M1B-Key-Q> do_quit
 
-set m1b_w_script {
+bind all <$M1B-Key-w> {
 	set toplvl_win [winfo toplevel %W]
 
 	# If we are destroying the main window, we should call do_quit to take
@@ -3292,11 +3336,7 @@ set m1b_w_script {
 		destroy $toplvl_win
 	}
 }
-
-bind all <$M1B-Key-w> $m1b_w_script
-bind all <$M1B-Key-W> $m1b_w_script
-
-unset m1b_w_script
+bind all <$M1B-Key-W> {close_blame_tab}
 
 set subcommand_args {}
 proc usage {} {
@@ -3462,14 +3502,47 @@ pack .branch -side top -fill x
 
 # -- Main Window Layout
 #
+${NS}::notebook .nb
+pack .nb -anchor n -side top -fill both -expand 1
+
+proc select_next_tab {which} {
+	set tabs [.nb tabs]
+	set n_tabs [llength $tabs]
+	set current [.nb select]
+	set next [lsearch -exact $tabs $current]
+	set next [expr $next + $which]
+	if {$next eq $n_tabs} {
+		set next 0
+	} elseif {$next eq -1} {
+		set next [expr $n_tabs - 1]
+	}
+	set next [lindex $tabs $next]
+	.nb select $next
+	focus $next
+}
+
+proc close_blame_tab {} {
+	set c [.nb select]
+	if {[string match {.nb.blame*} $c]} {
+		.nb forget $c
+	}
+}
+
+bind all <$M1B-Prior> "select_next_tab -1; break"
+bind all <$M1B-Next>  "select_next_tab  1; break"
+
+# -- Commit tab
+#
 ${NS}::panedwindow .vpane -orient horizontal
+.nb add .vpane -text [mc Commit@@verb]
+
 ${NS}::panedwindow .vpane.files -orient vertical
 if {$use_ttk} {
 	.vpane add .vpane.files -weight 0
 } else {
 	.vpane add .vpane.files -sticky nsew -height 100 -width 200
 }
-pack .vpane -anchor n -side top -fill both -expand 1
+
 
 # -- Working Directory File List
 
@@ -3536,11 +3609,20 @@ unset i
 set files_ctxm .vpane.files.ctxm
 menu $files_ctxm -tearoff 0
 $files_ctxm add separator
-$files_ctxm add command -label [mc "Open in Editor"] -command {open_from_file_list $current_diff_side $cursorX $cursorY}
-$files_ctxm add command -label [mc "Stage All Changed"] -command do_add_all
-$files_ctxm add command -label [mc "Stage Selected"] -command do_add_selection
+$files_ctxm add command \
+	-label [mc "Open in Editor"] \
+	-command {open_from_file_list $current_diff_side $cursorX $cursorY}
+$files_ctxm add command \
+	-label [mc "Stage All Changed"] \
+	-command do_add_all
+$files_ctxm add command \
+	-label [mc "Stage Selected"] \
+	-command do_add_selection
+$files_ctxm add command \
+	-label [mc "Blame in new Tab"] \
+	-command {blame_from_file_list $current_diff_side $cursorX $cursorY}
 if {[array names repo_config guitool.*.cmd] ne {}} {
-	files_tools_populate_all 4 popup_path
+	files_tools_populate_all 5 popup_path
 }
 
 
@@ -4202,7 +4284,7 @@ foreach i $ui_diff_columns {
 # -- Status Bar
 #
 set main_status [::status_bar::new .status]
-pack .status -anchor w -side bottom -fill x
+pack .status -anchor s -side bottom -fill x -before .nb
 $main_status show [mc "Initializing..."]
 
 # -- Load geometry
@@ -4337,6 +4419,7 @@ foreach i [list $ui_index $ui_workdir] {
 	bind $i <Key-Down>              { toggle_or_diff down %W; break }
 	bind $i <ButtonRelease-2>       { open_from_file_list %W %x %y; break }
 	bind $i <Shift-ButtonRelease-2> { open_from_file_list %W %x %y 1; break }
+	bind $i <$M1B-ButtonRelease-2>  { blame_from_file_list %W %x %y; break }
 }
 
 if {[$files_ctxm index end] == 1} {

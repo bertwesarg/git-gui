@@ -3,7 +3,7 @@
 
 class blame {
 
-image create photo ::blame::img_back_arrow -data {R0lGODlhGAAYAIUAAPwCBEzKXFTSZIz+nGzmhGzqfGTidIT+nEzGXHTqhGzmfGzifFzadETCVES+VARWDFzWbHzyjAReDGTadFTOZDSyRDyyTCymPARaFGTedFzSbDy2TCyqRCyqPARaDAyCHES6VDy6VCyiPAR6HCSeNByWLARyFARiDARqFGTifARiFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAEAAAAALAAAAAAYABgAAAajQIBwSCwaj8ikcsk0BppJwRPqHEypQwHBis0WDAdEFyBIKBaMAKLBdjQeSkFBYTBAIvgEoS6JmhUTEwIUDQ4VFhcMGEhyCgoZExoUaxsWHB0THkgfAXUGAhoBDSAVFR0XBnCbDRmgog0hpSIiDJpJIyEQhBUcJCIlwA22SSYVogknEg8eD82qSigdDSknY0IqJQXPYxIl1dZCGNvWw+Dm510GQQAh/mhDcmVhdGVkIGJ5IEJNUFRvR0lGIFBybyB2ZXJzaW9uIDIuNQ0KqSBEZXZlbENvciAxOTk3LDE5OTguIEFsbCByaWdodHMgcmVzZXJ2ZWQuDQpodHRwOi8vd3d3LmRldmVsY29yLmNvbQA7}
+image create photo ::blame::img_back_arrow -data {R0lGODlhDgAPAMZkAAFRCAJTCgNTCgNVCgNVCwFYCQNYCwBaBQJZCgBaCARZCwZaDwhdEAheEAdfDwdfFghjEQdmFwdtExODIxaKJReQLxqVKx2ZLSKbMimfOCihOCeiOCmiOSakODGsQTKsQy6tRjGuRDOvQjOxQjSzQzeyRzm0ST25U0K7UT69TkK9UkG/UULAUULAUkPBU0XDVEfDV0jDWEfFV0rEWUjFWEbGV0XHVknHWUnIWUvJW07IXlHMYVLNYlPPZ1TRZFfTa1nTaVzSbFrValrYcGPXc17ZblzabF7bbmHccV3dc1/db2LccmDdcF/dd2HecWbddmTgdmTidGTidWbidmbldmzjfGnleWrlem7lgmjof2/of2rqe27qfnPqg3buh3juh3rwinzyjIn/n4//n////////////////////////////////////////////////////////////////////////////////////////////////////////////////yH5BAEKAH8ALAAAAAAOAA8AAAeHgH+Cg385hIeDSIaIhD9jOIyDSlJiM5F/S1pVTTcxKywqNQuCRlxTUUJhYF9YUFsQf0ddV09EPjopJh8aQw8eVFZTRUE7MCglIR1ODH8YRkxAPDIvJyQeGUkNghU9QDQjIBscFxY2DoMULi1eBwgBAwIABIQTIlkJl4ISLwX5ghEG/AlSgCgQADs=}
 
 # Persistent data (survives loads)
 #
@@ -61,18 +61,98 @@ field tooltip_t         {} ; # Text widget in $tooltip_wm
 field tooltip_timer     {} ; # Current timer event for our tooltip
 field tooltip_commit    {} ; # Commit(s) in tooltip
 
+constructor embed {i_w i_status i_commit i_path i_jump} {
+
+	set w $i_w
+	set status $i_status
+
+	_init $this $i_commit $i_path
+
+	foreach i [list $w $w_amov $w_asim $w_line $w_file $w_cviewer [$finder editor] [$gotoline editor]] {
+		bind $i <F7>           [cb _show_finder]
+		bind $i <$::M1B-Key-f> [cb _show_finder]
+		bind $i <Escape>       [list $finder hide]
+		bind $i <F3>           [list $finder find_next]
+		bind $i <Shift-F3>     [list $finder find_prev]
+		bind $i <F8>           [cb _show_linebar]
+		bind $i <$::M1B-Key-g> [cb _show_linebar]
+	}
+
+	grid columnconfigure $w 0 -weight 1
+	grid rowconfigure $w 0 -weight 0
+	grid rowconfigure $w 1 -weight 1
+	grid rowconfigure $w 2 -weight 0
+
+	_load $this $i_jump
+
+	return $this
+}
+
 constructor new {i_commit i_path i_jump} {
+	global use_ttk
+
+	make_toplevel top w
+	wm title $top [mc "%s (%s): File Viewer" [appname] [reponame]]
+
+	set status [::status_bar::new $w.status]
+
+	set font_w [font measure font_diff "0"]
+
+	_init $this $i_commit $i_path
+
+	grid configure $w.status -sticky ew
+	grid columnconfigure $top 0 -weight 1
+	grid rowconfigure $top 0 -weight 0
+	grid rowconfigure $top 1 -weight 1
+	grid rowconfigure $top 2 -weight 0
+
+	bind $top       <F7>        [cb _show_finder]
+	bind $top       <Key-slash> [cb _show_finder]
+	bind $top    <$::M1B-Key-s> [cb _show_finder]
+	bind $top    <$::M1B-Key-f> [cb _show_finder]
+	bind $top       <Escape>    [list searchbar::hide $finder]
+	bind $top       <F3>        [list searchbar::find_next $finder]
+	bind $top       <Shift-F3>  [list searchbar::find_prev $finder]
+	bind $top       <F8>        [cb _show_linebar]
+	bind $top    <$::M1B-Key-g> [cb _show_linebar]
+	catch { bind $top <Shift-Key-XF86_Switch_VT_3> [list searchbar::find_prev $finder] }
+
+	set req_w [winfo reqwidth  $top]
+	set req_h [winfo reqheight $top]
+	set scr_w [expr {[winfo screenwidth $top] - 40}]
+	set scr_h [expr {[winfo screenheight $top] - 120}]
+	set opt_w [expr {$font_w * (80 + 5*3 + 3)}]
+	if {$req_w < $opt_w} {set req_w $opt_w}
+	if {$req_w > $scr_w} {set req_w $scr_w}
+	set opt_h [expr {$req_w*4/3}]
+	if {$req_h < $scr_h} {set req_h $scr_h}
+	if {$req_h > $opt_h} {set req_h $opt_h}
+	set g "${req_w}x${req_h}"
+	wm geometry $top $g
+	update
+
+	if {!$use_ttk} {
+		set old_height [winfo height $w.file_pane]
+		$w.file_pane sash place 0 \
+		       [lindex [$w.file_pane sash coord 0] 0] \
+		       [expr {int($old_height * 0.80)}]
+		bind $w.file_pane <Configure> \
+			"if {{$w.file_pane} eq {%W}} {[cb _resize %h]}"
+	}
+
+	wm protocol $top WM_DELETE_WINDOW "destroy $top"
+	bind $top <Destroy> [cb _handle_destroy %W]
+
+	_load $this $i_jump
+}
+
+method _init {i_commit i_path} {
 	global cursor_ptr M1B M1T have_tk85 use_ttk NS
 	variable active_color
 	variable group_colors
 
 	set commit $i_commit
 	set path   $i_path
-
-	make_toplevel top w
-	wm title $top [mc "%s (%s): File Viewer" [appname] [reponame]]
-
-	set font_w [font measure font_diff "0"]
 
 	gold_frame $w.header
 	tlabel $w.header.commit_l \
@@ -283,8 +363,6 @@ constructor new {i_commit i_path i_jump} {
 	pack $w.file_pane.cm.sbx -side bottom -fill x
 	pack $w_cviewer -expand 1 -fill both
 
-	set status [::status_bar::new $w.status]
-
 	menu $w.ctxm -tearoff 0
 	$w.ctxm add command \
 		-label [mc "Copy Commit"] \
@@ -326,7 +404,7 @@ constructor new {i_commit i_path i_jump} {
 
 		$i conf -cursor $cursor_ptr
 		$i conf -yscrollcommand \
-			"[list ::searchbar::scrolled $finder]
+			"[list $finder scrolled]
 			 [list many2scrollbar $w_columns yview $w.file_pane.out.sby]"
 
 		set bind_cmd bind
@@ -354,66 +432,25 @@ constructor new {i_commit i_path i_jump} {
 	}
 
 	foreach i [concat $w_columns $w_cviewer] {
-		bind $i <Key-Up>        {catch {%W yview scroll -1 units};break}
-		bind $i <Key-Down>      {catch {%W yview scroll  1 units};break}
-		bind $i <Key-Left>      {catch {%W xview scroll -1 units};break}
-		bind $i <Key-Right>     {catch {%W xview scroll  1 units};break}
-		bind $i <Key-k>         {catch {%W yview scroll -1 units};break}
-		bind $i <Key-j>         {catch {%W yview scroll  1 units};break}
-		bind $i <Key-h>         {catch {%W xview scroll -1 units};break}
-		bind $i <Key-l>         {catch {%W xview scroll  1 units};break}
-		bind $i <Control-Key-b> {catch {%W yview scroll -1 pages};break}
-		bind $i <Control-Key-f> {catch {%W yview scroll  1 pages};break}
+		bind $i <Key-Up>       {catch {%W yview scroll -1 units};break}
+		bind $i <Key-Down>     {catch {%W yview scroll  1 units};break}
+		bind $i <Key-Left>     {catch {%W xview scroll -1 units};break}
+		bind $i <Key-Right>    {catch {%W xview scroll  1 units};break}
+		bind $i <Key-k>        {catch {%W yview scroll -1 units};break}
+		bind $i <Key-j>        {catch {%W yview scroll  1 units};break}
+		bind $i <Key-h>        {catch {%W xview scroll -1 units};break}
+		bind $i <Key-l>        {catch {%W xview scroll  1 units};break}
+		bind $i <$::M1B-Key-b> {catch {%W yview scroll -1 pages};break}
+		bind $i <$::M1B-Key-f> {catch {%W yview scroll  1 pages};break}
 	}
 
 	bind $w_cviewer <Shift-Tab> "[cb _focus_search $w_file];break"
 	bind $w_cviewer <Tab>       "[list focus $w_file];break"
 	bind $w_cviewer <Button-1>   [list focus $w_cviewer]
 	bind $w_file    <Visibility> [cb _focus_search $w_file]
-	bind $top       <F7>         [cb _show_finder]
-	bind $top       <Key-slash>  [cb _show_finder]
-	bind $top    <Control-Key-s> [cb _show_finder]
-	bind $top       <Escape>     [list searchbar::hide $finder]
-	bind $top       <F3>         [list searchbar::find_next $finder]
-	bind $top       <Shift-F3>   [list searchbar::find_prev $finder]
-	bind $top    <Control-Key-g> [cb _show_linebar]
-	catch { bind $top <Shift-Key-XF86_Switch_VT_3> [list searchbar::find_prev $finder] }
 
 	grid configure $w.header -sticky ew
 	grid configure $w.file_pane -sticky nsew
-	grid configure $w.status -sticky ew
-	grid columnconfigure $top 0 -weight 1
-	grid rowconfigure $top 0 -weight 0
-	grid rowconfigure $top 1 -weight 1
-	grid rowconfigure $top 2 -weight 0
-
-	set req_w [winfo reqwidth  $top]
-	set req_h [winfo reqheight $top]
-	set scr_w [expr {[winfo screenwidth $top] - 40}]
-	set scr_h [expr {[winfo screenheight $top] - 120}]
-	set opt_w [expr {$font_w * (80 + 5*3 + 3)}]
-	if {$req_w < $opt_w} {set req_w $opt_w}
-	if {$req_w > $scr_w} {set req_w $scr_w}
-	set opt_h [expr {$req_w*4/3}]
-	if {$req_h < $scr_h} {set req_h $scr_h}
-	if {$req_h > $opt_h} {set req_h $opt_h}
-	set g "${req_w}x${req_h}"
-	wm geometry $top $g
-	update
-
-	if {!$use_ttk} {
-		set old_height [winfo height $w.file_pane]
-		$w.file_pane sash place 0 \
-		       [lindex [$w.file_pane sash coord 0] 0] \
-		       [expr {int($old_height * 0.80)}]
-		bind $w.file_pane <Configure> \
-			"if {{$w.file_pane} eq {%W}} {[cb _resize %h]}"
-	}
-
-	wm protocol $top WM_DELETE_WINDOW "destroy $top"
-	bind $top <Destroy> [cb _handle_destroy %W]
-
-	_load $this $i_jump
 }
 
 method _focus_search {win} {
