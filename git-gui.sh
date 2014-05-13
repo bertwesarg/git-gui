@@ -308,6 +308,12 @@ proc disable_option {option} {
 proc is_many_config {name} {
 	switch -glob -- $name {
 	gui.recentrepo -
+	gui.build -
+	gui.build.env -
+	gui.build.config -
+	gui.build.*.env -
+	gui.build.*.config -
+	gui.buildconfig.*.env -
 	remote.*.fetch -
 	remote.*.push
 		{return 1}
@@ -342,10 +348,10 @@ proc is_config_false {name} {
 	}
 }
 
-proc get_config {name} {
+proc get_config {name {default {}}} {
 	global repo_config
 	if {[catch {set v $repo_config($name)}]} {
-		return {}
+		return $default
 	} else {
 		return $v
 	}
@@ -566,6 +572,10 @@ proc _open_stdout_stderr {cmd} {
 	}
 	fconfigure $fd -eofchar {}
 	return $fd
+}
+
+proc open_read {args} {
+	return [_open_stdout_stderr $args]
 }
 
 proc git_read {args} {
@@ -1081,16 +1091,15 @@ unset -nocomplain idx fd
 ##
 ## config file parsing
 
-git-version proc _parse_config {arr_name args} {
+git-version proc _parse_config {arr_name cmd} {
 	>= 1.5.3 {
 		upvar $arr_name arr
 		array unset arr
 		set buf {}
 		catch {
 			set fd_rc [eval \
-				[list git_read config] \
-				$args \
-				[list --null --list]]
+				$cmd \
+				[list --null]]
 			fconfigure $fd_rc -translation binary -encoding utf-8
 			set buf [read $fd_rc]
 			close $fd_rc
@@ -1113,7 +1122,7 @@ git-version proc _parse_config {arr_name args} {
 		upvar $arr_name arr
 		array unset arr
 		catch {
-			set fd_rc [eval [list git_read config --list] $args]
+			set fd_rc [eval $cmd]
 			while {[gets $fd_rc line] >= 0} {
 				if {[regexp {^([^=]+)=(.*)$} $line line name value]} {
 					if {[is_many_config $name]} {
@@ -1136,10 +1145,10 @@ proc load_config {include_global} {
 	global repo_config global_config system_config default_config
 
 	if {$include_global} {
-		_parse_config system_config --system
-		_parse_config global_config --global
+		_parse_config system_config [list git_read config --system --list]
+		_parse_config global_config [list git_read config --global --list]
 	}
-	_parse_config repo_config
+	_parse_config repo_config [list git_read config --list]
 
 	foreach name [array names default_config] {
 		if {[catch {set v $system_config($name)}]} {
@@ -1341,12 +1350,14 @@ proc git_reset_env {} {
 	set ::GIT_DIR $::_gitdir
 	set ::GIT_WORK_TREE $::_gitworktree
 	set ::GIT_INDEX_FILE $::_gitindex
+	set ::GIT_NAMESPACE $::_gitnamespace
 }
 
 proc git_clear_env {} {
 	unset ::GIT_DIR
 	unset ::GIT_WORK_TREE
 	unset ::GIT_INDEX_FILE
+	unset ::GIT_NAMESPACE
 }
 
 set _gitdir [file normalize $_gitdir]
@@ -1365,10 +1376,19 @@ if {[info exists env(GIT_INDEX_FILE)]} {
 set GIT_INDEX_FILE $_gitindex
 trace add variable GIT_INDEX_FILE [list write unset] git_env_proxy
 
+if {[info exists env(GIT_NAMESPACE)]} {
+	set _gitnamespace $env(GIT_NAMESPACE)
+} else {
+	set _gitnamespace {}
+}
+set GIT_NAMESPACE $_gitnamespace
+trace add variable GIT_NAMESPACE [list write unset] git_env_proxy
+
 git_reset_env
 
 catch { unset env(GIT_EDITOR_F_NBLOCK) }
 catch { unset env(GIT_EDITOR_F_POSITION) }
+catch { unset env(GIT_EDITOR_F_AUX) }
 
 ######################################################################
 ##
@@ -2565,7 +2585,7 @@ proc force_first_diff {after} {
 }
 
 # opens file in editor
-proc open_in_git_editor {path {lno 0} {edit_index 0}} {
+proc open_in_git_editor {path {lno 0} {edit_index 0} {aux {}}} {
 	global env
 
 	if {$edit_index} {
@@ -2627,6 +2647,9 @@ proc open_in_git_editor {path {lno 0} {edit_index 0}} {
 	if {$lno != 0} {
 		set env(GIT_EDITOR_F_POSITION) $lno
 	}
+	if {$aux ne {}} {
+		set env(GIT_EDITOR_F_AUX) [sq $aux]
+	}
 
 	if {[catch {exec [shellpath] -c "[git var GIT_EDITOR] [sq $path]"} err]} {
 		tk_messageBox \
@@ -2638,6 +2661,7 @@ proc open_in_git_editor {path {lno 0} {edit_index 0}} {
 
 	catch { unset env(GIT_EDITOR_F_NBLOCK) }
 	catch { unset env(GIT_EDITOR_F_POSITION) }
+	catch { unset env(GIT_EDITOR_F_AUX) }
 
 	if {$edit_index} {
 		if {[catch {
@@ -4344,6 +4368,87 @@ foreach i [list all $ui_diff] {
 		$::grep_tab grep_from_selection
 	}
 }
+
+# -- Build Tabs
+#
+
+proc build_tab_state_change_cb {w build state} {
+	if {$build eq {}} {
+		set t "Build"
+	} else {
+		set t "Build: $build"
+	}
+	switch $state {
+	idle -
+	succeeded {
+		.nb tab $w -text "$t"
+	}
+	running -
+	loading -
+	canceling -
+	committing {
+		.nb tab $w -text "?$t"
+	}
+	failed {
+		.nb tab $w -text "!$t"
+	}
+	}
+}
+
+if {![is_config_true gui.build.nodefault]} {
+	if {[catch {
+		set w .nb.build
+		${NS}::frame $w
+		set b [::build::embed \
+			$w \
+			[get_config gui.build.vpath .] \
+			[get_config gui.build.ref default] \
+			[get_config gui.build.shell] \
+			[get_config gui.build.env [list]] \
+			[get_config gui.build.config [list]] \
+			[list build_tab_state_change_cb $w {}]]
+		$b link_vpane .vpane
+		$b reorder_bindtags
+		unset b
+		.nb add $w -text "Build"
+	} err]} {
+		tk_messageBox \
+			-icon error \
+			-type ok \
+			-title "git-gui: error for default build tab" \
+			-message $err
+	}
+}
+
+set ::build_count 0
+foreach build [get_config gui.build] {
+	if {[catch {
+		set w .nb.build[incr ::build_count]
+		${NS}::frame $w
+		set b [::build::embed \
+			$w \
+			[get_config gui.build.$build.vpath .] \
+			[get_config gui.build.$build.ref $build] \
+			[get_config gui.build.$build.shell [get_config gui.build.shell]] \
+			[concat [get_config gui.build.env [list]] \
+			        [get_config gui.build.$build.env [list]]] \
+			[concat [get_config gui.build.config [list]] \
+			        [get_config gui.build.$build.config [list]]] \
+			[list build_tab_state_change_cb $w $build]]
+		$b link_vpane .vpane
+		$b reorder_bindtags
+		unset b
+		.nb add $w -text "Build: $build"
+	} err]} {
+		tk_messageBox \
+			-icon error \
+			-type ok \
+			-title "git-gui: error for build tab $build" \
+			-message $err
+	}
+}
+unset build_count
+catch {unset w}
 
 # -- Browser Tab
 #

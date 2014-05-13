@@ -5,6 +5,7 @@ class searchbar {
 
 field w
 field ctext
+field focus_to
 
 field searchstring   {}
 field regexpsearch
@@ -20,10 +21,11 @@ field history_index
 field smarktop
 field smarkbot
 
-constructor new {i_w i_text args} {
+constructor new {i_w i_text i_focus args} {
 	global use_ttk NS
-	set w      $i_w
-	set ctext  $i_text
+	set w        $i_w
+	set ctext    $i_text
+	set focus_to $i_focus
 
 	set default_regexpsearch [is_config_true gui.search.regexp]
 	switch -- [get_config gui.search.case] {
@@ -86,7 +88,7 @@ method show {} {
 
 method hide {} {
 	if {[visible $this]} {
-		focus $ctext
+		focus $focus_to
 		grid remove $w
 		_save_search $this
 	}

@@ -319,7 +319,7 @@ method _init {i_commit i_path} {
 	grid rowconfigure $w.file_pane.out 0 -weight 1
 
 	set finder [::searchbar::new \
-		$w.file_pane.out.ff $w_file \
+		$w.file_pane.out.ff $w_file $w_file \
 		-column 0 \
 		-columnspan [expr {[llength $w_columns] + 1}] \
 		]

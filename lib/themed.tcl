@@ -36,6 +36,20 @@ proc InitTheme {} {
 		}
 	}
 
+	ttk::style layout Color.TCombobox {
+		Color.Combobox.field -sticky nswe -children {
+			Color.Combobox.downarrow -side right -sticky ns \
+			Color.Combobox.padding -expand 1 -sticky nswe -children {
+				Color.Combobox.textarea -sticky nswe}}}
+	eval [linsert [ttk::style configure TCombobox] 0 \
+			  ttk::style configure Color.TCombobox]
+	ttk::style configure Color.TCombobox \
+		-borderwidth 0 \
+		-relief flat \
+		-padding 0
+	ttk::style map Color.TCombobox -fieldbackground {{} lightsalmon}
+	ttk::style map Color.TCombobox -background {{} lightsalmon}
+
 	set theme [ttk_get_current_theme]
 
 	if {[lsearch -exact {default alt classic clam} $theme] != -1} {

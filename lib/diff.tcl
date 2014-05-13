@@ -471,7 +471,7 @@ proc parse_color_line {line} {
 	set start 0
 	set result ""
 	set markup [list]
-	set regexp {\033\[((?:\d+;)*\d+)?m}
+	set regexp {\033\[((?:\d+;)*\d+)?m(?:\033\[K)?}
 	set need_reset 0
 	while {[regexp -indices -start $start $regexp $line match code]} {
 		foreach {begin end} $match break
