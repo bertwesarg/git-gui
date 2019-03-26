@@ -266,6 +266,7 @@ proc ttext {w args} {
 			bind $w <FocusOut> {[winfo parent %W] state !focus}
 		}
 	}
+	$w tag conf sel -background darkgray
 	return $w
 }
 

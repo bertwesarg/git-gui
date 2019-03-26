@@ -175,7 +175,7 @@ method _incrsearch {} {
 			$ctext see $here
 			$ctext tag remove sel 1.0 end
 			$ctext tag add sel $here "$here + $mlen c"
-			#$w.ent configure -background lightgreen
+			$w.ent configure -background lightgreen
 			$w.ent state !pressed
 			_set_marks $this 1
 		} else {
