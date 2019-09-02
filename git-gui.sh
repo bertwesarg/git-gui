@@ -31,8 +31,8 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA}]
 ##
 ## Tcl/Tk sanity check
 
-if {[catch {package require Tcl 8.4} err]
- || [catch {package require Tk  8.4} err]
+if {[catch {package require Tcl 8.5} err]
+ || [catch {package require Tk  8.5} err]
 } {
 	catch {wm withdraw .}
 	tk_messageBox \
@@ -41,6 +41,17 @@ if {[catch {package require Tcl 8.4} err]
 		-title "git-gui: fatal error" \
 		-message $err
 	exit 1
+}
+
+# lmap is shipped since 8.6
+if {[info commands lmap] eq {}} {
+	# we only use the one-list variant
+	proc lmap {_var list body} {
+		upvar 1 $_var var
+		set res {}
+		foreach var $list {lappend res [uplevel 1 $body]}
+		set res
+	}
 }
 
 catch {rename send {}} ; # What an evil concept...

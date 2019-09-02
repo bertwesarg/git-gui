@@ -215,6 +215,16 @@ A good commit message has the following format:
 		unlock_index
 		return
 	}
+	if {[tcl::mathfunc::max {*}[lmap x [split $msg "\n"] {string length $x}]] > $repo_config(gui.commitmsgwidth) \
+	    && [ask_popup "Commit message contains lines longer than $repo_config(gui.commitmsgwidth) characters.
+
+You may change this limit in the options.
+
+Continue to commit?
+"] ne yes} {
+		unlock_index
+		return
+	}
 
 	# -- Build the message file.
 	#
