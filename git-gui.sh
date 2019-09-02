@@ -1445,7 +1445,7 @@ proc force_amend {} {
 	set commit_type $newType
 
 	set selected_commit_type amend
-	do_select_commit_type
+	ui_select_commit_type
 }
 
 proc rescan {after {honor_trustmtime 1}} {
@@ -2640,6 +2640,16 @@ proc show_less_context {} {
 	}
 }
 
+proc toggle_commit_type {} {
+	global selected_commit_type
+	if {[string match amend* $selected_commit_type]} {
+		set selected_commit_type new
+	} else {
+		set selected_commit_type amend
+	}
+	ui_select_commit_type
+}
+
 ######################################################################
 ##
 ## ui construction
@@ -2824,13 +2834,31 @@ proc commit_btn_caption {} {
 	}
 }
 
+proc ui_select_commit_type {} {
+	global selected_commit_type
+	global ui_commit_type_commit ui_commit_type_amend
+
+	do_select_commit_type
+	if {$selected_commit_type eq {new}} {
+		.mbar.commit entryconf [mc "New Commit"] \
+			-accelerator {}
+		.mbar.commit entryconf [mc "Amend Last Commit"] \
+			-accelerator $::M1T-E
+	} elseif {$selected_commit_type eq {amend}} {
+		.mbar.commit entryconf [mc "New Commit"] \
+			-accelerator $::M1T-E
+		.mbar.commit entryconf [mc "Amend Last Commit"] \
+			-accelerator {}
+	}
+}
+
 if {[is_enabled multicommit] || [is_enabled singlecommit]} {
 	menu .mbar.commit
 
 	if {![is_enabled nocommit]} {
 		.mbar.commit add radiobutton \
 			-label [mc "New Commit"] \
-			-command do_select_commit_type \
+			-command ui_select_commit_type \
 			-variable selected_commit_type \
 			-value new
 		lappend disable_on_lock \
@@ -2838,7 +2866,8 @@ if {[is_enabled multicommit] || [is_enabled singlecommit]} {
 
 		.mbar.commit add radiobutton \
 			-label [mc "Amend Last Commit"] \
-			-command do_select_commit_type \
+			-accelerator $M1T-E \
+			-command ui_select_commit_type \
 			-variable selected_commit_type \
 			-value amend
 		lappend disable_on_lock \
@@ -3315,14 +3344,14 @@ set ui_coml .vpane.lower.commarea.buffer.header.l
 if {![is_enabled nocommit]} {
 	${NS}::radiobutton .vpane.lower.commarea.buffer.header.new \
 		-text [mc "New Commit"] \
-		-command do_select_commit_type \
+		-command ui_select_commit_type \
 		-variable selected_commit_type \
 		-value new
 	lappend disable_on_lock \
 		[list .vpane.lower.commarea.buffer.header.new conf -state]
 	${NS}::radiobutton .vpane.lower.commarea.buffer.header.amend \
 		-text [mc "Amend Last Commit"] \
-		-command do_select_commit_type \
+		-command ui_select_commit_type \
 		-variable selected_commit_type \
 		-value amend
 	lappend disable_on_lock \
@@ -3843,6 +3872,7 @@ bind .   <$M1B-Key-equal> {show_more_context;break}
 bind .   <$M1B-Key-plus> {show_more_context;break}
 bind .   <$M1B-Key-KP_Add> {show_more_context;break}
 bind .   <$M1B-Key-Return> do_commit
+bind .   <$M1B-Key-e> toggle_commit_type
 foreach i [list $ui_index $ui_workdir] {
 	bind $i <Button-1>       { toggle_or_diff click %W %x %y; break }
 	bind $i <$M1B-Button-1>  { add_one_to_selection %W %x %y; break }
