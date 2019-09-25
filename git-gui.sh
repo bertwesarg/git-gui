@@ -2526,14 +2526,65 @@ proc force_first_diff {after} {
 }
 
 # opens file in editor
-proc open_in_git_editor {path {lno 0}} {
+proc open_in_git_editor {path {lno 0} {edit_index 0}} {
 	global env
 
+	if {$edit_index} {
+		if {[catch {
+			set fd [git_read ls-files -s --error-unmatch -- $path]
+			fconfigure $fd -translation binary -encoding binary
+			set info [split [gets $fd] " \t"]
+			close $fd
+			set mode [lindex $info 0]
+			set sha1 [lindex $info 1]
+			set stage [lindex $info 2]
+			if {$mode != 100644 && $mode != 100755} {
+				return -code error "Path is not a regular file: $mode"
+			}
+			if {$stage != 0} {
+				return -code error "Path is in unmerged state."
+			}
+			set tmp_path "[file rootname $path].[string range $sha1 0 11][file extension $path]"
+			if {[file exists $tmp_path]} {
+				return -code error "Path is currently edited."
+			}
+			set fd [git_read checkout-index --temp -- $path]
+			fconfigure $fd -translation binary -encoding binary
+			set info [split [gets $fd] " \t"]
+			close $fd
+			set git_tmp_path [lindex $info 0]
+			file rename $git_tmp_path $tmp_path
+			unset git_tmp_path
+			if {$mode == 100644} {
+				file attributes $tmp_path -permissions 0600
+			} else {
+				file attributes $tmp_path -permissions 0700
+			}
+			set orig_path $path
+			set path $tmp_path
+			unset tmp_path
+		} err]} {
+			if {[info exists tmp_path]} {
+				file delete $tmp_path
+			}
+			if {[info exists git_tmp_path]} {
+				file delete $git_tmp_path
+			}
+			tk_messageBox \
+				-icon error \
+				-type ok \
+				-title {git-gui: Can't edit path from index} \
+				-message $err
+			return
+		}
+	}
 
 	catch { unset env(ARGS) }
 	catch { unset env(REVISION) }
 
-	set env(GIT_EDITOR_F_NBLOCK) 1
+	if {!$edit_index} {
+		set env(GIT_EDITOR_F_NBLOCK) 1
+	}
 	if {$lno != 0} {
 		set env(GIT_EDITOR_F_POSITION) $lno
 	}
@@ -2548,6 +2599,40 @@ proc open_in_git_editor {path {lno 0}} {
 
 	catch { unset env(GIT_EDITOR_F_NBLOCK) }
 	catch { unset env(GIT_EDITOR_F_POSITION) }
+
+	if {$edit_index} {
+		if {[catch {
+			set new_mode [file attributes $path -permissions]
+			switch -glob $new_mode {
+			??6?? {
+				set new_mode 100644
+			}
+			??7?? {
+				set new_mode 100755
+			}
+			* {
+				return -code error "Invalid mode of edited file."
+			}
+			}
+			set fd [git_read hash-object -w --path=[encoding convertto $orig_path] -- [encoding convertto $path]]
+			fconfigure $fd -translation binary -encoding binary
+			set new_sha1 [gets $fd]
+			close $fd
+			file delete $path
+			set fd [git_write update-index -z --index-info]
+			puts -nonewline $fd "$new_mode $new_sha1\t[encoding convertto $orig_path]\0"
+			close $fd
+		} err]} {
+			file delete $path
+			tk_messageBox \
+				-icon error \
+				-type ok \
+				-title {git-gui: Can't edit path from index} \
+				-message $err
+			return
+		}
+		do_rescan
+	}
 }
 
 proc get_best_diff_lno {w lno} {
@@ -2574,7 +2659,7 @@ proc get_best_diff_lno {w lno} {
 	return $lno
 }
 
-proc open_from_file_list {w x y} {
+proc open_from_file_list {w x y {edit_index 0}} {
 	global ui_diff ui_diff_blnos
 	global file_lists current_diff_path
 
@@ -2601,10 +2686,10 @@ proc open_from_file_list {w x y} {
 		set lno [get_best_diff_lno $ui_diff_blnos $lno]
 	}
 
-	open_in_git_editor $path $lno
+	open_in_git_editor $path $lno $edit_index
 }
 
-proc open_from_diff_view {x y} {
+proc open_from_diff_view {x y {edit_index 0}} {
 	global ui_diff ui_diff_blnos
 	global file_lists current_diff_path
 
@@ -2616,7 +2701,7 @@ proc open_from_diff_view {x y} {
 	set lno [lindex [split $lno .] 0]
 	set lno [get_best_diff_lno $ui_diff_blnos $lno]
 
-	open_in_git_editor $current_diff_path $lno
+	open_in_git_editor $current_diff_path $lno $edit_index
 }
 
 proc popup_files_ctxm {m w x y X Y} {
@@ -3936,6 +4021,10 @@ $ctxm add command \
 	-command {open_from_diff_view $cursorX $cursorY}
 lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
 $ctxm add command \
+	-label [mc "Open Staged Content in Editor"] \
+	-command {open_from_diff_view $cursorX $cursorY 1}
+lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
+$ctxm add command \
 	-label [mc "Show Less Context"] \
 	-command show_less_context
 lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
@@ -4106,7 +4195,8 @@ proc popup_diff_menu {ctxm ctxmmg ctxmsm x y X Y} {
 bind_button3 $ui_diff [list popup_diff_menu $ctxm $ctxmmg $ctxmsm %x %y %X %Y]
 
 foreach i $ui_diff_columns {
-	bind $i <ButtonRelease-2> {open_from_diff_view %x %y}
+	bind $i <ButtonRelease-2>       {open_from_diff_view %x %y}
+	bind $i <Shift-ButtonRelease-2> {open_from_diff_view %x %y 1}
 }
 
 # -- Status Bar
@@ -4240,12 +4330,13 @@ bind .   <$M1B-Key-KP_Add> {show_more_context;break}
 bind .   <$M1B-Key-Return> do_commit
 bind .   <$M1B-Key-KP_Enter> do_commit
 foreach i [list $ui_index $ui_workdir] {
-	bind $i <Button-1>        { toggle_or_diff click %W %x %y; break }
-	bind $i <$M1B-Button-1>   { add_one_to_selection %W %x %y; break }
-	bind $i <Shift-Button-1>  { add_range_to_selection %W %x %y; break }
-	bind $i <Key-Up>          { toggle_or_diff up %W; break }
-	bind $i <Key-Down>        { toggle_or_diff down %W; break }
-	bind $i <ButtonRelease-2> { open_from_file_list %W %x %y; break }
+	bind $i <Button-1>              { toggle_or_diff click %W %x %y; break }
+	bind $i <$M1B-Button-1>         { add_one_to_selection %W %x %y; break }
+	bind $i <Shift-Button-1>        { add_range_to_selection %W %x %y; break }
+	bind $i <Key-Up>                { toggle_or_diff up %W; break }
+	bind $i <Key-Down>              { toggle_or_diff down %W; break }
+	bind $i <ButtonRelease-2>       { open_from_file_list %W %x %y; break }
+	bind $i <Shift-ButtonRelease-2> { open_from_file_list %W %x %y 1; break }
 }
 
 if {[$files_ctxm index end] == 1} {
