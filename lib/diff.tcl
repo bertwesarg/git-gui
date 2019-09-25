@@ -708,10 +708,11 @@ proc apply_or_revert_range_or_line {x y revert} {
 		# $i_l is now at the beginning of a line
 
 		# pick start line number from hunk header
-		set hh [$ui_diff get $i_l "$i_l + 1 lines"]
-		set hh [lindex [split $hh ,] 0]
-		set hln [lindex [split $hh -] 1]
-		set hln [lindex [split $hln " "] 0]
+		if {![regexp {^@@ -(\d+)(?:,\d+)? \+(?:\d+)(?:,\d+)? @@(?:\s|$)} \
+			[$ui_diff get $i_l "$i_l + 1 lines"] hh hln]} {
+			unlock_index
+			return
+		}
 
 		# There is a special situation to take care of. Consider this
 		# hunk:
