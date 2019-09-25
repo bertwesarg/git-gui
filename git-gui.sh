@@ -2085,7 +2085,6 @@ set all_icons(U$ui_workdir) file_merge
 set all_icons(O$ui_workdir) file_plain
 set all_icons(T$ui_workdir) file_statechange
 
-set max_status_desc 0
 foreach i {
 		{__ {mc "Unmodified"}}
 
@@ -2117,11 +2116,7 @@ foreach i {
 		{UD {mc "Requires merge resolution"}}
 		{UT {mc "Requires merge resolution"}}
 	} {
-	set text [eval [lindex $i 1]]
-	if {$max_status_desc < [string length $text]} {
-		set max_status_desc [string length $text]
-	}
-	set all_descs([lindex $i 0]) $text
+	set all_descs([lindex $i 0]) [eval [lindex $i 1]]
 }
 unset i
 
@@ -3525,7 +3520,6 @@ gold_frame .vpane.lower.diff.header
 tlabel .vpane.lower.diff.header.status \
 	-background gold \
 	-foreground black \
-	-width $max_status_desc \
 	-anchor w \
 	-justify left
 tlabel .vpane.lower.diff.header.file \
@@ -3539,8 +3533,8 @@ tlabel .vpane.lower.diff.header.path \
 	-anchor w \
 	-justify left
 pack .vpane.lower.diff.header.status -side left
-pack .vpane.lower.diff.header.file -side left
-pack .vpane.lower.diff.header.path -fill x
+pack .vpane.lower.diff.header.path -side right -fill x
+pack .vpane.lower.diff.header.file -side right
 set ctxm .vpane.lower.diff.header.ctxm
 menu $ctxm -tearoff 0
 $ctxm add command \
