@@ -1351,9 +1351,13 @@ set is_conflict_diff 0
 set diff_empty_count 0
 set last_revert {}
 set last_revert_enc {}
+set diff_show_line_numbers 1
+set diff_lno_column_width 0
+set is_other_diff 0
 
 set nullid "0000000000000000000000000000000000000000"
 set nullid2 "0000000000000000000000000000000000000001"
+
 
 ######################################################################
 ##
@@ -2972,6 +2976,10 @@ if {[is_enabled multicommit] || [is_enabled singlecommit]} {
 		-command show_more_context \
 		-accelerator $M1T-=
 
+	.mbar.commit add checkbutton -label [mc "Show Line Numbers"] \
+		-command update_show_line_numbers \
+		-variable diff_show_line_numbers
+
 	.mbar.commit add separator
 
 	if {![is_enabled nocommitmsg]} {
@@ -3425,6 +3433,47 @@ ${NS}::frame .vpane.lower.commarea.buffer.header
 set ui_comm .vpane.lower.commarea.buffer.frame.t
 set ui_coml .vpane.lower.commarea.buffer.header.l
 
+proc ignore_yscrollcommand {top bottom} {}
+
+proc update_show_line_numbers {} {
+	global ui_diff_alnos ui_diff_blnos ui_diff_clnos
+	global diff_show_line_numbers is_3way_diff is_other_diff
+	global ui_diff ui_diff_columns ui_diff_columns_to_scroll
+
+	# remember current sscroll position
+	set current_pos [.vpane.lower.diff.body.sby get]
+
+	# remove all line number columns
+	grid remove $ui_diff_alnos $ui_diff_blnos $ui_diff_clnos
+	set ui_diff_columns_to_scroll [list $ui_diff]
+	foreach i $ui_diff_columns {
+		$i conf -yscrollcommand {}
+	}
+
+	if {$diff_show_line_numbers} {
+		if {!$is_other_diff} {
+			grid configure $ui_diff_alnos
+			lappend ui_diff_columns_to_scroll $ui_diff_alnos
+		}
+		grid configure $ui_diff_blnos
+		lappend ui_diff_columns_to_scroll $ui_diff_blnos
+		if {$is_3way_diff} {
+			grid configure $ui_diff_clnos
+			lappend ui_diff_columns_to_scroll $ui_diff_clnos
+		}
+	}
+
+	foreach i $ui_diff_columns_to_scroll {
+		$i conf -yscrollcommand \
+			"[list many2scrollbar $ui_diff_columns_to_scroll yview .vpane.lower.diff.body.sby]"
+	}
+	.vpane.lower.diff.body.sby conf \
+		-command [list scrollbar2many $ui_diff_columns_to_scroll yview]
+
+	# restore current scroll position
+	many2scrollbar $ui_diff_columns_to_scroll yview .vpane.lower.diff.body.sby [lindex $current_pos 0] [lindex $current_pos 1]
+}
+
 if {![is_enabled nocommit]} {
 	${NS}::checkbutton .vpane.lower.commarea.buffer.header.amend \
 		-text [mc "Amend Last Commit"] \
@@ -3579,22 +3628,84 @@ bind_button3 .vpane.lower.diff.header.path "tk_popup $ctxm %X %Y"
 #
 textframe .vpane.lower.diff.body
 set ui_diff .vpane.lower.diff.body.t
+# for 3way merges
+set ui_diff_clnos .vpane.lower.diff.body.c
+# - lines
+set ui_diff_alnos .vpane.lower.diff.body.a
+# + lines
+set ui_diff_blnos .vpane.lower.diff.body.b
+
+set ui_diff_lno_col_width 2
+
+ttext $ui_diff_alnos -background grey90 -foreground black \
+	-padx 0 -pady 0 \
+	-borderwidth 0 \
+	-width [expr $ui_diff_lno_col_width + 2] -height 5 -wrap none \
+	-font font_diff \
+	-takefocus 0 -highlightthickness 0 \
+	-state disabled
+$ui_diff_alnos tag conf linenumber -justify right -rmargin 5
+$ui_diff_alnos tag conf red -foreground red
+$ui_diff_alnos tag conf green -foreground green4
+
+ttext $ui_diff_blnos -background grey95 -foreground black \
+	-padx 0 -pady 0 \
+	-borderwidth 0 \
+	-width [expr $ui_diff_lno_col_width + 2] -height 5 -wrap none \
+	-font font_diff \
+	-takefocus 0 -highlightthickness 0 \
+	-state disabled
+$ui_diff_blnos tag conf linenumber -justify right -rmargin 5
+$ui_diff_blnos tag conf red -foreground red
+$ui_diff_blnos tag conf green -foreground green4
+$ui_diff_blnos tag conf hide -elide 1
+
+ttext $ui_diff_clnos -background grey90 -foreground black \
+	-padx 0 -pady 0 \
+	-borderwidth 0 \
+	-width [expr $ui_diff_lno_col_width + 2] -height 5 -wrap none \
+	-font font_diff \
+	-takefocus 0 -highlightthickness 0 \
+	-state disabled
+$ui_diff_clnos tag conf linenumber -justify right -rmargin 5
+$ui_diff_clnos tag conf red -foreground red
+$ui_diff_clnos tag conf green -foreground green4
+
+delegate_sel_to $ui_diff [list $ui_diff_alnos $ui_diff_blnos $ui_diff_clnos]
+
 ttext $ui_diff -background white -foreground black \
+	-padx 0 -pady 0 \
 	-borderwidth 0 \
 	-width 80 -height 5 -wrap none \
 	-font font_diff \
-	-takefocus 1 -highlightthickness 1 \
+	-takefocus 1 -highlightthickness 0 \
 	-xscrollcommand {.vpane.lower.diff.body.sbx set} \
-	-yscrollcommand {.vpane.lower.diff.body.sby set} \
 	-state disabled
 catch {$ui_diff configure -tabstyle wordprocessor}
+
+set ui_diff_columns [list $ui_diff_alnos $ui_diff_blnos $ui_diff $ui_diff_clnos]
+set ui_diff_line_columns [list $ui_diff_alnos $ui_diff_blnos $ui_diff_clnos]
+set ui_diff_columns_to_scroll $ui_diff_columns
+
 ${NS}::scrollbar .vpane.lower.diff.body.sbx -orient horizontal \
 	-command [list $ui_diff xview]
 ${NS}::scrollbar .vpane.lower.diff.body.sby -orient vertical \
-	-command [list $ui_diff yview]
-pack .vpane.lower.diff.body.sbx -side bottom -fill x
-pack .vpane.lower.diff.body.sby -side right -fill y
-pack $ui_diff -side left -fill both -expand 1
+	-command [list scrollbar2many $ui_diff_columns_to_scroll yview]
+
+grid $ui_diff_alnos $ui_diff_blnos $ui_diff_clnos $ui_diff .vpane.lower.diff.body.sby -sticky nsew
+grid conf .vpane.lower.diff.body.sbx \
+	-column 0 \
+	-sticky we \
+	-columnspan 5
+grid columnconfigure .vpane.lower.diff.body \
+	3 \
+	-weight 1
+grid rowconfigure .vpane.lower.diff.body \
+	0 \
+	-weight 1
+
+update_show_line_numbers
+
 pack .vpane.lower.diff.header -side top -fill x
 pack .vpane.lower.diff.body -side bottom -fill both -expand 1
 
@@ -3643,7 +3754,9 @@ $ui_diff tag conf d> \
 	-foreground orange \
 	-font font_diffbold
 
-$ui_diff tag raise sel
+foreach i $ui_diff_columns {
+	$i tag raise sel
+}
 
 # -- Diff Body Context Menu
 #
@@ -3728,6 +3841,10 @@ $ctxm add command \
 	-label [mc "Show More Context"] \
 	-command show_more_context
 lappend diff_actions [list $ctxm entryconf [$ctxm index last] -state]
+$ctxm add checkbutton \
+	-label [mc "Show Line Numbers"] \
+	-command update_show_line_numbers \
+	-variable diff_show_line_numbers
 $ctxm add separator
 create_common_diff_popup $ctxm
 
@@ -3759,6 +3876,10 @@ $ctxmmg add command \
 	-label [mc "Show More Context"] \
 	-command show_more_context
 lappend diff_actions [list $ctxmmg entryconf [$ctxmmg index last] -state]
+$ctxmmg add checkbutton \
+	-label [mc "Show Line Numbers"] \
+	-command update_show_line_numbers \
+	-variable diff_show_line_numbers
 $ctxmmg add separator
 create_common_diff_popup $ctxmmg
 

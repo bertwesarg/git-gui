@@ -17,16 +17,33 @@ proc apply_tab_size {{firsttab {}}} {
 proc clear_diff {} {
 	global ui_diff current_diff_path current_diff_header
 	global ui_index ui_workdir
+	global ui_diff_columns ui_diff_line_columns
+	global ui_diff_lno_col_width diff_lno_column_width
+	global is_other_diff is_3way_diff
+	global diff_nl diff_lno
 
-	$ui_diff conf -state normal
-	$ui_diff delete 0.0 end
-	$ui_diff conf -state disabled
+	foreach i $ui_diff_columns {
+		$i conf -state normal
+		$i delete 0.0 end
+		$i conf -state disabled
+	}
+	set diff_nl ""
+	set diff_lno 1
+
+	set diff_lno_column_width 0
+	foreach i $ui_diff_line_columns {
+		$i conf -width [expr $ui_diff_lno_col_width + 2]
+	}
 
 	set current_diff_path {}
 	set current_diff_header {}
 
 	$ui_index tag remove in_diff 0.0 end
 	$ui_workdir tag remove in_diff 0.0 end
+
+	set is_other_diff 0
+	set is_3way_diff 0
+	update_show_line_numbers
 }
 
 proc reshow_diff {{after {}}} {
@@ -93,6 +110,7 @@ proc show_diff {path w {lno {}} {scroll_pos {}} {callback {}}} {
 	global ui_diff ui_index ui_workdir
 	global current_diff_path current_diff_side current_diff_header
 	global current_diff_queue
+	global is_other_diff
 
 	if {$diff_active || ![lock_index read]} return
 
@@ -115,6 +133,7 @@ proc show_diff {path w {lno {}} {scroll_pos {}} {callback {}}} {
 	set current_diff_side $w
 	set current_diff_queue {}
 	ui_status [mc "Loading diff of %s..." [escape_path $path]]
+	set is_other_diff 0
 
 	set cont_info [list $scroll_pos $callback]
 
@@ -123,6 +142,8 @@ proc show_diff {path w {lno {}} {scroll_pos {}} {callback {}}} {
 	if {[string first {U} $m] >= 0} {
 		merge_load_stages $path [list show_unmerged_diff $cont_info]
 	} elseif {$m eq {_O}} {
+		set is_other_diff 1
+		update_show_line_numbers
 		show_other_diff $path $w $m $cont_info
 	} else {
 		start_show_diff $cont_info
@@ -130,6 +151,50 @@ proc show_diff {path w {lno {}} {scroll_pos {}} {callback {}}} {
 
 	global current_diff_path selected_paths
 	set selected_paths($current_diff_path) 1
+}
+
+proc update_lnocol_width {txt} {
+	global diff_lno_column_width
+
+	regsub {^[-+]} $txt {} txt
+	set ln_wc [string length $txt]
+	if {$diff_lno_column_width < $ln_wc} {
+		set diff_lno_column_width $ln_wc
+	}
+}
+
+proc insert_lno {w pos txt tags} {
+	$w insert $pos $txt "linenumber $tags"
+	update_lnocol_width $txt
+}
+
+proc diff_append_line {line {tag {}} {blno {}} {alno {}} {clno {}}} {
+	global diff_nl diff_lno
+	global ui_diff_clnos ui_diff_alnos ui_diff_blnos
+	global ui_diff
+
+	$ui_diff_clnos insert end "$diff_nl" linenumber
+	if {[llength $clno] > 0} {
+		$ui_diff_clnos insert end [lindex $clno 0] "linenumber [lindex $clno 1]"
+		update_lnocol_width [lindex $clno 0]
+	}
+
+	$ui_diff_alnos insert end "$diff_nl" linenumber
+	if {[llength $alno] > 0} {
+		$ui_diff_alnos insert end [lindex $alno 0] "linenumber [lindex $alno 1]"
+		update_lnocol_width [lindex $alno 0]
+	}
+
+	$ui_diff_blnos insert end "$diff_nl" linenumber
+	if {[llength $blno] > 0} {
+		$ui_diff_blnos insert end [lindex $blno 0] "linenumber [lindex $blno 1]"
+		update_lnocol_width [lindex $blno 0]
+	}
+
+	$ui_diff insert end "$diff_nl$line" $tag
+
+	set diff_nl "\n"
+	incr diff_lno
 }
 
 proc show_unmerged_diff {cont_info} {
@@ -140,22 +205,22 @@ proc show_unmerged_diff {cont_info} {
 	if {$merge_stages(2) eq {}} {
 		set is_conflict_diff 1
 		lappend current_diff_queue \
-			[list [mc "LOCAL: deleted\nREMOTE:\n"] d= \
+			[list [mc "LOCAL: deleted\nREMOTE:"] d= \
 			    [list ":1:$current_diff_path" ":3:$current_diff_path"]]
 	} elseif {$merge_stages(3) eq {}} {
 		set is_conflict_diff 1
 		lappend current_diff_queue \
-			[list [mc "REMOTE: deleted\nLOCAL:\n"] d= \
+			[list [mc "REMOTE: deleted\nLOCAL:"] d= \
 			    [list ":1:$current_diff_path" ":2:$current_diff_path"]]
 	} elseif {[lindex $merge_stages(1) 0] eq {120000}
 		|| [lindex $merge_stages(2) 0] eq {120000}
 		|| [lindex $merge_stages(3) 0] eq {120000}} {
 		set is_conflict_diff 1
 		lappend current_diff_queue \
-			[list [mc "LOCAL:\n"] d= \
+			[list [mc "LOCAL:"] d= \
 			    [list ":1:$current_diff_path" ":2:$current_diff_path"]]
 		lappend current_diff_queue \
-			[list [mc "REMOTE:\n"] d= \
+			[list [mc "REMOTE:"] d= \
 			    [list ":1:$current_diff_path" ":3:$current_diff_path"]]
 	} else {
 		start_show_diff $cont_info
@@ -167,13 +232,19 @@ proc show_unmerged_diff {cont_info} {
 
 proc advance_diff_queue {cont_info} {
 	global current_diff_queue ui_diff
+	global ui_diff_columns
 
 	set item [lindex $current_diff_queue 0]
 	set current_diff_queue [lrange $current_diff_queue 1 end]
 
-	$ui_diff conf -state normal
-	$ui_diff insert end [lindex $item 0] [lindex $item 1]
-	$ui_diff conf -state disabled
+	set content [lindex $item 0]
+	set tag [lindex $item 1]
+
+	foreach i $ui_diff_columns {$i conf -state normal}
+	foreach line [split $content "\n"] {
+		diff_append_line $line $tag
+	}
+	foreach i $ui_diff_columns {$i conf -state disabled}
 
 	start_show_diff $cont_info [lindex $item 2]
 }
@@ -183,6 +254,8 @@ proc show_other_diff {path w m cont_info} {
 	global is_3way_diff diff_active repo_config
 	global ui_diff ui_index ui_workdir
 	global current_diff_path current_diff_side current_diff_header
+	global ui_diff_columns ui_diff_line_columns
+	global ui_diff_lno_col_width diff_lno_column_width
 
 	# - Git won't give us the diff, there's nothing to compare to!
 	#
@@ -221,44 +294,66 @@ proc show_other_diff {path w m cont_info} {
 			error_popup [strcat [mc "Error loading file:"] "\n\n$err"]
 			return
 		}
-		$ui_diff conf -state normal
+		foreach i $ui_diff_columns {$i conf -state normal}
 		if {$type eq {submodule}} {
-			$ui_diff insert end \
+			diff_append_line \
 				"* [mc "Git Repository (subproject)"]\n" \
-				d_info
+				d_info \
+				[list "*" {}]
 		} elseif {![catch {set type [exec file $path]}]} {
 			set n [string length $path]
 			if {[string equal -length $n $path $type]} {
 				set type [string range $type $n end]
 				regsub {^:?\s*} $type {} type
 			}
-			$ui_diff insert end "* $type\n" d_info
+			diff_append_line "* $type" d_info [list "*" {}]
 		}
 		if {[string first "\0" $content] != -1} {
-			$ui_diff insert end \
+			diff_append_line \
 				[mc "* Binary file (not showing content)."] \
-				d_info
+				d_info \
+				[list "*" {}]
 		} else {
 			if {$sz > $max_sz} {
-				$ui_diff insert end [mc \
-"* Untracked file is %d bytes.
-* Showing only first %d bytes.
-" $sz $max_sz] d_info
+				diff_append_line \
+					[mc "* Untracked file is %d bytes." $sz] \
+					d_info \
+					[list "*" {}]
+				diff_append_line \
+					[mc "* Showing only first %d bytes." $max_sz] \
+					d_info \
+					[list "*" ""]
 			}
-			$ui_diff insert end $content
+			regsub -all "\r\n" $content "\n" content
+			regsub -all "\r" $content "\n" content
+			set lno 1
+			foreach line [split $content "\n"] {
+				diff_append_line $line {} [list $lno ""]
+				incr lno
+			}
 			if {$sz > $max_sz} {
-				$ui_diff insert end [mc "
-* Untracked file clipped here by %s.
-* To see the entire file, use an external editor.
-" [appname]] d_info
+				diff_append_line \
+					[mc "* Untracked file clipped here by %s." [appname]] \
+					d_info \
+					[list "*" ""]
+				diff_append_line \
+					[mc "* To see the entire file, use an external editor."] \
+					d_info \
+					[list "*" ""]
 			}
 		}
-		$ui_diff conf -state disabled
+		if {$diff_lno_column_width > $ui_diff_lno_col_width} {
+			foreach i $ui_diff_line_columns {
+				$i conf -width [expr $diff_lno_column_width + 2]
+			}
+		}
+		foreach i $ui_diff_columns {$i conf -state disabled}
 		set diff_active 0
 		unlock_index
 		set scroll_pos [lindex $cont_info 0]
 		if {$scroll_pos ne {}} {
 			update
+			# TODO: scroll all
 			$ui_diff yview moveto $scroll_pos
 		}
 		ui_ready
@@ -275,6 +370,9 @@ proc start_show_diff {cont_info {add_opts {}}} {
 	global is_3way_diff is_submodule_diff diff_active repo_config
 	global ui_diff ui_index ui_workdir
 	global current_diff_path current_diff_side current_diff_header
+	global diff_a_lno diff_b_lno diff_c_lno
+	global diff_a_mod_cnt diff_b_mod_cnt diff_c_mod_cnt
+	global diff_hunk_mark
 
 	set path $current_diff_path
 	set w $current_diff_side
@@ -286,6 +384,13 @@ proc start_show_diff {cont_info {add_opts {}}} {
 	set diff_active 1
 	set current_diff_header {}
 	set conflict_size [gitattr $path conflict-marker-size 7]
+	set diff_a_lno {}
+	set diff_b_lno {}
+	set diff_c_lno {}
+	set diff_hunk_mark {}
+	set diff_a_mod_cnt {}
+	set diff_b_mod_cnt {}
+	set diff_c_mod_cnt {}
 
 	set cmd [list]
 	if {$w eq $ui_index} {
@@ -349,8 +454,12 @@ proc start_show_diff {cont_info {add_opts {}}} {
 	set ::current_diff_inheader 1
 	# detect pre-image lines of the diff3 conflict-style, they are just '++'
 	# lines which is not bijective, thus we need to maintain a state across
-	# lines
-	set ::conflict_in_pre_image 0
+	# lines, state is encoded as the last conflict-marker line, i.e.,
+	# > -- context, not inside a conflict
+	# < -- ours image
+	# | -- pre image
+	# = -- theirs image
+	set ::conflict_state {>}
 	fconfigure $fd \
 		-blocking 0 \
 		-encoding [get_path_encoding $path] \
@@ -385,11 +494,17 @@ proc parse_color_line {line} {
 
 proc read_diff {fd conflict_size cont_info} {
 	global ui_diff diff_active is_submodule_diff
+	global ui_diff_alnos ui_diff_blnos ui_diff_clnos
 	global is_3way_diff is_conflict_diff current_diff_header
 	global current_diff_queue
 	global diff_empty_count
+	global ui_diff_columns ui_diff_line_columns
+	global diff_a_lno diff_b_lno diff_c_lno
+	global diff_a_mod_cnt diff_b_mod_cnt diff_c_mod_cnt
+	global diff_lno diff_hunk_mark
+	global diff_lno_column_width ui_diff_lno_col_width
 
-	$ui_diff conf -state normal
+	foreach i $ui_diff_columns {$i conf -state normal}
 	while {[gets $fd line] >= 0} {
 		foreach {line markup} [parse_color_line $line] break
 		set line [string map {\033 ^} $line]
@@ -412,7 +527,20 @@ proc read_diff {fd conflict_size cont_info} {
 		if {[string match {@@@ *} $line]} {
 			set is_3way_diff 1
 			apply_tab_size 1
+			update_show_line_numbers
 		}
+
+		set pre_lno {}
+		set pre_lno_tag {}
+		set post_lno {}
+		set post_lno_tag {}
+		set a_lno {}
+		set a_lno_tag {}
+		set b_lno {}
+		set b_lno_tag {}
+		set c_lno {}
+		set c_lno_tag {}
+		set remember_hunk 0
 
 		if {$::current_diff_inheader} {
 
@@ -444,25 +572,82 @@ proc read_diff {fd conflict_size cont_info} {
 		} elseif {$is_3way_diff} {
 			set op [string range $line 0 1]
 			switch -- $op {
-			{  } {set tags {}}
-			{@@} {set tags d_@}
-			{ +} {set tags d_s+}
-			{ -} {set tags d_s-}
-			{+ } {set tags d_+s}
-			{- } {set tags d_-s}
-			{--} {set tags d_--}
+			{@@} {
+				regexp {^@@@ -(\d+)(?:,\d+)? -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@@} $line _g diff_c_lno diff_a_lno diff_b_lno
+				set tags d_@
+			}
+			{  } {
+				set c_lno $diff_c_lno
+				incr diff_c_lno
+
+				set a_lno $diff_a_lno
+				incr diff_a_lno
+
+				set b_lno $diff_b_lno
+				incr diff_b_lno
+
+				set tags {}
+			}
+			{ +} {
+				set c_lno $diff_c_lno
+				set c_lno_tag green
+				incr diff_c_lno
+
+				set b_lno $diff_b_lno
+				incr diff_b_lno
+
+				set tags d_s+
+			}
+			{ -} {
+				incr diff_a_lno [expr {$::conflict_state eq {>}}]
+				set tags d_s-
+			}
+			{+ } {
+				set a_lno $diff_a_lno
+				set a_lno_tag green
+				incr diff_a_lno
+
+				set b_lno $diff_b_lno
+				set b_lno_tag green
+				incr diff_b_lno
+
+				set tags d_+s
+			}
+			{- } {
+				incr diff_c_lno [expr {$::conflict_state eq {>}}]
+				set tags d_-s
+			}
+			{--} {
+				set c_lno $diff_c_lno
+				set c_lno_tag red
+				incr diff_c_lno
+
+				set a_lno $diff_a_lno
+				set a_lno_tag red
+				incr diff_a_lno
+
+				set b_lno $diff_b_lno
+				#set b_lno_tag red
+				incr diff_b_lno
+
+				set tags d_--
+			}
 			{++} {
+				set b_lno $diff_b_lno
+				incr diff_b_lno
+
 				set regexp [string map [list %conflict_size $conflict_size]\
 								{^\+\+([<>=|]){%conflict_size}(?: |$)}]
 				if {[regexp $regexp $line _g op]} {
 					set is_conflict_diff 1
 					set line [string replace $line 0 1 {  }]
 					set tags d$op
+					set b_lno_tag hide
 					# the ||| conflict-marker marks the start of the pre-image,
 					# all those lines are also prefixed with '++', thus we need
-					# to maintain this state
-					set ::conflict_in_pre_image [expr {$op eq {|}}]
-				} elseif {$::conflict_in_pre_image} {
+					# to maintain this state by using $op
+					set ::conflict_state $op
+				} elseif {$::conflict_state eq {|}} {
 					# this is a pre-image line, it is the one which both sides
 					# are based on. As it has also the '++' line start, it is
 					# normally shown as 'added', invert this to '--' to make
@@ -470,6 +655,14 @@ proc read_diff {fd conflict_size cont_info} {
 					set line [string replace $line 0 1 {--}]
 					set tags d_--
 				} else {
+					set c_lno $diff_c_lno
+					set c_lno_tag green
+					incr diff_c_lno
+
+					set a_lno $diff_a_lno
+					set a_lno_tag green
+					incr diff_a_lno
+
 					set tags d_++
 				}
 			}
@@ -500,10 +693,44 @@ proc read_diff {fd conflict_size cont_info} {
 		} else {
 			set op [string index $line 0]
 			switch -- $op {
-			{ } {set tags {}}
-			{@} {set tags d_@}
-			{-} {set tags d_-}
+			{@} {
+				if {$diff_hunk_mark ne {}} {
+					if {$diff_a_mod_cnt > 0} {
+						insert_lno $ui_diff_alnos $diff_hunk_mark "-$diff_a_mod_cnt" red
+					}
+					if {$diff_b_mod_cnt > 0} {
+						insert_lno $ui_diff_blnos $diff_hunk_mark "+$diff_b_mod_cnt" green
+					}
+				}
+				regexp {^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@} $line _g diff_a_lno diff_b_lno
+				set remember_hunk 1
+				set diff_a_mod_cnt 0
+				set diff_b_mod_cnt 0
+				set tags d_@
+			}
+			{ } {
+				set a_lno $diff_a_lno
+				incr diff_a_lno
+
+				set b_lno $diff_b_lno
+				incr diff_b_lno
+
+				set tags {}
+			}
+			{-} {
+				set a_lno $diff_a_lno
+				incr diff_a_lno
+				set a_lno_tag red
+				incr diff_a_mod_cnt
+
+				set tags d_-
+			}
 			{+} {
+				set b_lno $diff_b_lno
+				incr diff_b_lno
+				set b_lno_tag green
+				incr diff_b_mod_cnt
+
 				set regexp [string map [list %conflict_size $conflict_size]\
 								{^\+([<>=]){%conflict_size}(?: |$)}]
 				if {[regexp $regexp $line _g op]} {
@@ -519,12 +746,20 @@ proc read_diff {fd conflict_size cont_info} {
 			}
 			}
 		}
-		set mark [$ui_diff index "end - 1 line linestart"]
-		$ui_diff insert end $line $tags
+		set mark $diff_lno.0
+		if {$remember_hunk} {
+			set diff_hunk_mark $mark
+		}
+
+		diff_append_line \
+			$line $tags \
+			[list "$b_lno" $b_lno_tag] \
+			[list "$a_lno" $a_lno_tag] \
+			[list "$c_lno" $c_lno_tag]
+
 		if {[string index $line end] eq "\r"} {
 			$ui_diff tag add d_cr {end - 2c}
 		}
-		$ui_diff insert end "\n" $tags
 
 		foreach {posbegin colbegin posend colend} $markup {
 			set prefix clr
@@ -537,10 +772,27 @@ proc read_diff {fd conflict_size cont_info} {
 			}
 		}
 	}
-	$ui_diff conf -state disabled
+	foreach i $ui_diff_columns {$i conf -state disabled}
 
 	if {[eof $fd]} {
 		close $fd
+
+		# fill line stats for last hunk
+		foreach i $ui_diff_columns {$i conf -state normal}
+		if {$diff_hunk_mark ne {}} {
+			if {$diff_a_mod_cnt > 0} {
+				insert_lno $ui_diff_alnos $diff_hunk_mark "-$diff_a_mod_cnt" "red"
+			}
+			if {$diff_b_mod_cnt > 0} {
+				insert_lno $ui_diff_blnos $diff_hunk_mark "+$diff_b_mod_cnt" "green"
+			}
+		}
+		if {$diff_lno_column_width > $ui_diff_lno_col_width} {
+			foreach i $ui_diff_line_columns {
+				$i conf -width [expr $diff_lno_column_width + 2]
+			}
+		}
+		foreach i $ui_diff_columns {$i conf -state disabled}
 
 		if {$current_diff_queue ne {}} {
 			advance_diff_queue $cont_info
@@ -552,6 +804,7 @@ proc read_diff {fd conflict_size cont_info} {
 		set scroll_pos [lindex $cont_info 0]
 		if {$scroll_pos ne {}} {
 			update
+			# TODO: scroll all
 			$ui_diff yview moveto $scroll_pos
 		}
 		ui_ready
@@ -572,6 +825,7 @@ proc read_diff {fd conflict_size cont_info} {
 proc apply_or_revert_hunk {x y revert} {
 	global current_diff_path current_diff_header current_diff_side
 	global ui_diff ui_index file_states last_revert last_revert_enc
+	global ui_diff_columns
 
 	if {$current_diff_path eq {} || $current_diff_header eq {}} return
 	if {![lock_index apply_hunk]} return
@@ -631,9 +885,11 @@ proc apply_or_revert_hunk {x y revert} {
 		set last_revert_enc $enc
 	}
 
-	$ui_diff conf -state normal
-	$ui_diff delete $s_lno $e_lno
-	$ui_diff conf -state disabled
+	foreach i $ui_diff_columns {
+		$i conf -state normal
+		$i delete $s_lno $e_lno
+		$i conf -state disabled
+	}
 
 	# Check if the hunk was the last one in the file.
 	if {[$ui_diff get 1.0 end] eq "\n"} {
